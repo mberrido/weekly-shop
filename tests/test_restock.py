@@ -46,8 +46,8 @@ def test_low_items_with_a_number_go_on_this_weeks_list(pc):
     assert items["Saxa Fine Salt"]["qty"] == "1"
 
 
-def test_only_this_week(pc):
-    assert restock(pc, "2030-01-07") == {}
+def test_on_the_one_list_whatever_week_is_asked_for(pc):
+    assert set(restock(pc, "2030-01-07")) == {"Semi Skimmed Milk", "Saxa Fine Salt"}
 
 
 def test_drops_off_when_restocked(pc, pantry):

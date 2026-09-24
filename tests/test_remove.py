@@ -27,25 +27,24 @@ def test_delete_hides_item_and_unticks(client):
     assert client.get(f"/api/list?week={WEEK}").json()["total"] == 1
 
 
-def test_comes_back_when_another_meal_needs_it(client):
+def test_another_meal_adds_only_its_own_amount(client):
     curry, stew, _ = setup_week(client)
-    remove(client, "carrot")
+    remove(client, "carrot")                       # curry's 2 carrots: dealt with
     client.post("/api/plan", json={"week_start": WEEK, "day": 1, "slot": "dinner", "meal_id": stew["id"]})
-    assert items(client)["carrot"]["qty"] == "5"
+    assert items(client)["carrot"]["qty"] == "3"   # only the stew's 3, not 5
 
 
-def test_comes_back_when_meal_readded_or_servings_change(client):
+def test_readding_the_meal_brings_it_back_but_servings_change_does_not(client):
     curry, _, pid = setup_week(client)
     remove(client, "carrot")
     client.patch(f"/api/plan/{pid}", json={"servings": 8})
-    assert items(client)["carrot"]["qty"] == "4"
-    remove(client, "carrot")
+    assert "carrot" not in items(client)           # still dealt with for that planned meal
     client.delete(f"/api/plan/{pid}")
     client.post("/api/plan", json={"week_start": WEEK, "day": 0, "slot": "dinner", "meal_id": curry["id"]})
-    assert "carrot" in items(client)
+    assert items(client)["carrot"]["qty"] == "2"
 
 
-def test_stays_deleted_otherwise_and_only_this_week(client):
+def test_stays_deleted_until_another_week_plans_it(client):
     curry, _, _ = setup_week(client)
     remove(client, "carrot")
     for _ in range(2):
@@ -73,11 +72,3 @@ def test_delete_extra(client):
 def test_unknown_item(client):
     setup_week(client)
     assert remove(client, "unicorn").status_code == 404
-
-
-def test_deleted_items_not_sent_to_cookidoo(client, fake_api):
-    setup_week(client)
-    remove(client, "carrot")
-    client.post("/api/cookidoo/send-list", json={"week_start": WEEK})
-    assert fake_api.pushed["items"] == ["500 g chicken thighs"]
-    assert "carrot" not in items(client)   # sending didn't forget the deletion

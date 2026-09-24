@@ -39,11 +39,6 @@ class Item:
     plan_ids: list[int] = field(default_factory=list)
 
     @property
-    def signature(self) -> str:
-        """What this item is made of; changes if it's needed again after being deleted."""
-        return ",".join(str(i) for i in sorted(self.plan_ids)) + "|" + self.qty
-
-    @property
     def qty(self) -> str:
         parts = [
             format_qty(q, u)
@@ -54,13 +49,14 @@ class Item:
         return " + ".join(parts)
 
 
-def merge_items(planned: Iterable[PlannedMeal], pantry: set[str]) -> dict[str, Item]:
-    """Scale, normalise and merge ingredients. Pantry keys are skipped."""
+def merge_items(planned: Iterable[PlannedMeal], pantry: set[str],
+                bought: set[tuple[int, str]] | frozenset = frozenset()) -> dict[str, Item]:
+    """Scale, normalise and merge ingredients. Pantry keys and bought (plan, item) pairs are skipped."""
     items: dict[str, Item] = {}
     for pm in planned:
         for ing in pm.ingredients:
             key = merge_key(ing["name"])
-            if not key or key in pantry:
+            if not key or key in pantry or (pm.plan_id, key) in bought:
                 continue
             item = items.get(key)
             if item is None:
@@ -77,25 +73,26 @@ def merge_items(planned: Iterable[PlannedMeal], pantry: set[str]) -> dict[str, I
     return items
 
 
-def drop_removed(conn: sqlite3.Connection, week_start: str, items: dict[str, Item]) -> dict[str, Item]:
-    """Hide items deleted from this week's list, unless they've changed since (then forget the deletion)."""
-    removed = dict(conn.execute("SELECT item_key, signature FROM removed WHERE week_start = ?", (week_start,)).fetchall())
-    keep = {}
-    for key, item in items.items():
-        if key in removed:
-            if removed[key] == item.signature:
-                continue
-            conn.execute("DELETE FROM removed WHERE week_start = ? AND item_key = ?", (week_start, key))
-        keep[key] = item
-    return keep
+LIST = "list"   # the one shopping list: key used for ticks, extras and hidden pantry lines
 
 
-def planned_meals(conn: sqlite3.Connection, week_start: str) -> list[PlannedMeal]:
+def bought_pairs(conn: sqlite3.Connection) -> set[tuple[int, str]]:
+    return {(r[0], r[1]) for r in conn.execute("SELECT plan_id, item_key FROM bought")}
+
+
+def current_items(conn: sqlite3.Connection) -> dict[str, Item]:
+    """Ingredients still to buy, from every planned meal in every week."""
+    return merge_items(planned_meals(conn), pantry_keys(conn), bought_pairs(conn))
+
+
+def planned_meals(conn: sqlite3.Connection, week_start: str | None = None) -> list[PlannedMeal]:
+    """Planned meals for one week, or for every week when week_start is None."""
+    where, args = ("WHERE p.week_start = ?", (week_start,)) if week_start else ("", ())
     rows = conn.execute(
-        """SELECT p.id AS plan_id, p.meal_id, p.servings AS planned, m.name, m.servings, m.source
-           FROM plan p JOIN meals m ON m.id = p.meal_id
-           WHERE p.week_start = ? ORDER BY p.day, p.slot, p.id""",
-        (week_start,),
+        f"""SELECT p.id AS plan_id, p.meal_id, p.servings AS planned, m.name, m.servings, m.source
+            FROM plan p JOIN meals m ON m.id = p.meal_id
+            {where} ORDER BY p.week_start, p.day, p.slot, p.id""",
+        args,
     ).fetchall()
     ing_cache: dict[int, list[dict]] = {}
     out = []
@@ -151,41 +148,44 @@ def low_products(products: list[dict] | None) -> list[dict]:
             if p.get("weekly_shop_qty") and p["quantity"] <= p.get("reorder_threshold", 0)]
 
 
-def build_list(conn: sqlite3.Connection, week_start: str, products: list[dict] | None = None,
-               pantry_ok: bool | None = None, include_restock: bool = False) -> dict:
-    """include_restock: add low Pantry Tracker items (only for the current week)."""
-    items = merge_items(planned_meals(conn, week_start), pantry_keys(conn))
+def build_list(conn: sqlite3.Connection, products: list[dict] | None = None,
+               pantry_ok: bool | None = None) -> dict:
+    """The one shopping list: unbought meal ingredients from every week, low pantry items,
+    extras and regular items."""
+    items = current_items(conn)
     stock = pantry_stock(conn, items, products)
     in_pantry = [
         {"key": item.key, "name": item.name, "qty": item.qty, "meals": item.meals,
          "product": stock[item.key]["product"], "auto": stock[item.key]["auto"]}
         for item in sorted(items.values(), key=lambda i: i.name.lower()) if item.key in stock
     ]
-    items = drop_removed(conn, week_start, {k: v for k, v in items.items() if k not in stock})
+    items = {k: v for k, v in items.items() if k not in stock}
     overrides = dict(conn.execute("SELECT name, aisle FROM aisles").fetchall())
-    checked = {r[0] for r in conn.execute("SELECT item_key FROM checked WHERE week_start = ?", (week_start,))}
+    qty_over = dict(conn.execute("SELECT item_key, qty FROM qty_overrides").fetchall())
+    checked = {r[0] for r in conn.execute("SELECT item_key FROM checked WHERE week_start = ?", (LIST,))}
 
     groups: dict[str, list[dict]] = {a: [] for a in AISLES}
+
+    def add(row: dict) -> None:
+        if row["key"] in qty_over:
+            row["qty"], row["qty_edited"] = qty_over[row["key"]], True
+        groups.setdefault(row["aisle"], []).append(row)
+
     for item in items.values():
         aisle = overrides.get(item.key) or guess_aisle(item.name)
-        groups.setdefault(aisle, []).append(
-            {"key": item.key, "name": item.name, "qty": item.qty, "meals": item.meals,
-             "aisle": aisle, "checked": item.key in checked, "extra_id": None}
-        )
-    if include_restock:
-        removed = dict(conn.execute("SELECT item_key, signature FROM removed WHERE week_start = ? AND item_key LIKE 'p:%'",
-                                    (week_start,)).fetchall())
-        for prod in low_products(products):
-            key = f"p:{prod['id']}"
-            if removed.get(key) == restock_signature(prod):
-                continue
-            aisle = overrides.get(merge_key(prod["name"])) or guess_aisle(prod["name"])
-            groups.setdefault(aisle, []).append(
-                {"key": key, "name": prod["name"], "qty": str(prod["weekly_shop_qty"]), "meals": [],
-                 "aisle": aisle, "checked": key in checked, "extra_id": None,
-                 "pantry_low": {"product_id": prod["id"], "quantity": prod["quantity"]}}
-            )
-    for r in conn.execute("SELECT id, name, qty, regular_id FROM extras WHERE week_start = ? ORDER BY id", (week_start,)):
+        add({"key": item.key, "name": item.name, "qty": item.qty, "meals": item.meals,
+             "aisle": aisle, "checked": item.key in checked, "extra_id": None})
+    hidden = dict(conn.execute("SELECT item_key, signature FROM removed WHERE week_start = ? AND item_key LIKE 'p:%'",
+                               (LIST,)).fetchall())
+    for prod in low_products(products):
+        key = f"p:{prod['id']}"
+        if hidden.get(key) == restock_signature(prod):
+            continue
+        aisle = overrides.get(merge_key(prod["name"])) or guess_aisle(prod["name"])
+        add({"key": key, "name": prod["name"], "qty": str(prod["weekly_shop_qty"]), "meals": [],
+             "aisle": aisle, "checked": key in checked, "extra_id": None,
+             "pantry_low": {"product_id": prod["id"], "quantity": prod["quantity"]}})
+    for r in conn.execute("SELECT id, name, qty, regular_id FROM extras WHERE week_start = ? ORDER BY id", (LIST,)):
         key = f"x:{r['id']}"
         row = {"key": key, "name": r["name"], "qty": r["qty"], "meals": [], "aisle": "Extras",
                "checked": key in checked, "extra_id": r["id"]}
@@ -198,7 +198,7 @@ def build_list(conn: sqlite3.Connection, week_start: str, products: list[dict] |
         for r in conn.execute(
             """SELECT g.id, g.name, g.qty,
                       EXISTS(SELECT 1 FROM extras x WHERE x.regular_id = g.id AND x.week_start = ?) AS on_list
-               FROM regulars g ORDER BY g.name COLLATE NOCASE""", (week_start,))
+               FROM regulars g ORDER BY g.name COLLATE NOCASE""", (LIST,))
     ]
 
     aisles = []
@@ -209,5 +209,33 @@ def build_list(conn: sqlite3.Connection, week_start: str, products: list[dict] |
             aisles.append({"name": name, "items": rows})
     total = sum(len(a["items"]) for a in aisles)
     left = sum(1 for a in aisles for i in a["items"] if not i["checked"])
-    return {"week_start": week_start, "aisles": aisles, "total": total, "left": left,
+    return {"aisles": aisles, "total": total, "left": left,
             "in_pantry": in_pantry, "pantry_ok": pantry_ok, "regulars": regulars}
+
+
+def take_off_list(conn: sqlite3.Connection, key: str, items: dict[str, Item],
+                  products: list[dict] | None) -> bool:
+    """Bought, deleted or cleared: take one item off the list for good. Returns False if it isn't on it.
+
+    Meal ingredients are marked bought for exactly the planned meals they came from, so planning
+    another meal that needs them puts only the new amount on the list.
+    """
+    found = True
+    if key.startswith("x:"):
+        found = conn.execute("DELETE FROM extras WHERE id = ? AND week_start = ?", (key[2:], LIST)).rowcount > 0
+    elif key.startswith("p:"):
+        prod = next((p for p in low_products(products) if f"p:{p['id']}" == key), None)
+        if prod is None:
+            found = False
+        else:
+            conn.execute("INSERT INTO removed(week_start, item_key, signature) VALUES (?,?,?) "
+                         "ON CONFLICT(week_start, item_key) DO UPDATE SET signature = excluded.signature",
+                         (LIST, key, restock_signature(prod)))
+    elif key in items:
+        conn.executemany("INSERT OR IGNORE INTO bought(plan_id, item_key) VALUES (?, ?)",
+                         [(pid, key) for pid in items[key].plan_ids])
+    else:
+        found = False
+    conn.execute("DELETE FROM checked WHERE week_start = ? AND item_key = ?", (LIST, key))
+    conn.execute("DELETE FROM qty_overrides WHERE item_key = ?", (key,))
+    return found

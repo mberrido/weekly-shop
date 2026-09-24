@@ -244,6 +244,8 @@ dialog.sheet[open] { animation: up .2s ease-out; }
 .stepper { display: flex; align-items: center; justify-content: center; gap: 20px; margin: 12px 0 20px; }
 .stepper button { width: 56px; height: 56px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); font-size: 26px; }
 .stepper output { font: 800 48px/1 var(--display); min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
+.qtyrow { display: flex; gap: 8px; }
+.qtyrow input { flex: 1; }
 .aislegrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .aislegrid .btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .row2 { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
@@ -439,6 +441,7 @@ function setTab(tab) {
   S.tab = tab; store.set("tab", tab);
   for (const b of document.querySelectorAll("nav.tabs button")) b.setAttribute("aria-selected", String(b.dataset.tab === tab));
   for (const t of ["week", "meals", "list"]) $(`#view-${t}`).hidden = t !== tab;
+  $(".weeksw").hidden = tab === "list";   // one shopping list, not per week
   render();
 }
 document.querySelectorAll("nav.tabs button").forEach(b => b.addEventListener("click", () => {
@@ -481,11 +484,11 @@ $("#logout").onclick = async () => {
 async function refresh() {
   lastRefresh = Date.now();
   try {
-    const [week, list] = await Promise.all([api(`/api/week?start=${S.week}`), api(`/api/list?week=${S.week}`)]);
+    const [week, list] = await Promise.all([api(`/api/week?start=${S.week}`), api("/api/list")]);
     S.weekData = week; S.list = list; S.list.offline = false;
-    store.set(`list:${S.week}`, list);
+    store.set("list", list);
   } catch (e) {
-    const cached = store.get(`list:${S.week}`, null);
+    const cached = store.get("list", null);
     if (e.offline && cached) { S.list = { ...cached, offline: true }; }
     else toast(e.message);
   }
@@ -540,7 +543,11 @@ function renderWeek() {
       const r = await api("/api/week/copy-last", { method: "POST", body: { week_start: S.week } });
       toast(r.copied ? `Copied ${r.copied} meal${r.copied === 1 ? "" : "s"} from last week` : "Nothing new to copy from last week");
       await refresh();
-    }) }, "Copy last week"));
+    }) }, "Copy last week"),
+    wd.entries.length > 0 && h("button", { type: "button", class: "btn ghost danger", onclick: e => confirmTap(e.currentTarget, "Tap again to clear", async () => {
+      const r = await api("/api/week/clear", { method: "POST", body: { week_start: S.week } });
+      toast(`Cleared ${r.cleared} meal${r.cleared === 1 ? "" : "s"} from ${weekLabel(S.week)}`); await refresh();
+    }) }, "Clear week"));
   const days = wd.days.map((d, i) => {
     const date = parseIso(d);
     const isToday = d === today;
@@ -830,7 +837,7 @@ function importSheet() {
 
 // ---------------------------------------------------------------- LIST
 function listText() {
-  const lines = [`Shopping · ${weekLabel(S.week)}`];
+  const lines = ["Shopping list"];
   for (const a of S.list.aisles) {
     const todo = a.items.filter(i => !i.checked);
     if (!todo.length) continue;
@@ -851,7 +858,7 @@ function renderList() {
       if (L.offline) { toast("Offline — can't save ticks right now"); return; }
       const flip = () => { it.checked = !it.checked; L.left += it.checked ? -1 : 1; rerenderListKeepingFocus(it.key); };
       flip();   // optimistic
-      try { await api("/api/list/check", { method: "POST", body: { week_start: S.week, key: it.key, checked: it.checked } }); store.set(`list:${S.week}`, L); }
+      try { await api("/api/list/check", { method: "POST", body: { week_start: S.week, key: it.key, checked: it.checked } }); store.set("list", L); }
       catch (e) { flip(); toast(e.message); }
     };
     li.append(tick, h("button", { type: "button", class: "itemmain", onclick: () => itemSheet(it) },
@@ -869,7 +876,7 @@ function renderList() {
   fill(v, 
     L.offline && h("p", { class: "offline", text: "Offline: showing the last saved copy of this list. Ticks won't save until you're back online." }),
     h("div", { class: "count" }, h("span", { class: "n", text: L.left }), h("span", { class: "l", text: L.left === 1 ? "item left" : "items left" })),
-    h("p", { class: "sub", text: L.total ? `${L.total - L.left} of ${L.total} ticked · ${weekLabel(S.week)}` : weekLabel(S.week) }),
+    h("p", { class: "sub", text: L.total ? `${L.total - L.left} of ${L.total} ticked` : "Everything planned, in one list" }),
     h("div", { class: "actions" },
       h("button", { type: "button", class: "btn primary", disabled: !L.left, onclick: async () => {
         const text = listText();
@@ -880,7 +887,12 @@ function renderList() {
       } }, "Share list"),
       L.total - L.left > 0 && h("button", { type: "button", class: "btn ghost", disabled: L.offline, onclick: e => run(e.currentTarget, async () => {
         await api("/api/list/untick-all", { method: "POST", body: { week_start: S.week } }); await refresh();
-      }) }, "Untick all")),
+      }) }, "Untick all"),
+      L.total > 0 && h("button", { type: "button", class: "btn ghost danger", disabled: L.offline,
+        onclick: e => confirmTap(e.currentTarget, "Tap again to clear", async () => {
+          const r = await api("/api/list/clear", { method: "POST" });
+          toast(`Cleared ${r.cleared} item${r.cleared === 1 ? "" : "s"} from the list`); await refresh();
+        }) }, "Clear list")),
     !L.total && h("div", { class: "empty" }, h("h2", { text: "Nothing to buy yet" }),
       h("p", { text: "Plan some meals for this week and the list builds itself." }),
       h("button", { type: "button", class: "btn", onclick: () => setTab("week") }, "Plan the week")),
@@ -959,8 +971,19 @@ function rerenderListKeepingFocus(key) {
 
 function itemSheet(it) {
   const isExtra = it.extra_id != null;
+  const qtyIn = h("input", { type: "text", id: "item-qty", value: it.qty || "", maxLength: 40, autocomplete: "off",
+    placeholder: "e.g. 2, 500 g, 1 kg" });
+  const saveQty = async btn => run(btn, async () => {
+    await api("/api/list/qty", { method: "PUT", body: { key: it.key, qty: qtyIn.value.trim() } });
+    closeSheet(); toast(`Updated ${cap(it.name)}`); await refresh();
+  });
   openSheet(cap(it.name),
-    it.qty && h("p", { class: "sub", text: it.qty + (it.meals.length ? ` · for ${it.meals.join(", ")}` : "") }),
+    it.meals.length > 0 && h("p", { class: "sub", text: `for ${it.meals.join(", ")}` }),
+    h("form", { class: "field", onsubmit: e => { e.preventDefault(); saveQty(e.target.querySelector("button[type=submit]")); } },
+      h("label", { class: "lab", for: "item-qty", text: "Quantity" }),
+      h("div", { class: "qtyrow" }, qtyIn, h("button", { type: "submit", class: "btn primary" }, "Save")),
+      it.qty_edited && h("button", { type: "button", class: "btn ghost small", style: "margin-top:8px",
+        onclick: e => { qtyIn.value = ""; saveQty(e.currentTarget); } }, "Reset to the original amount")),
     !isExtra && [
       h("div", { class: "grouplabel", text: "Aisle (remembered)" }),
       h("div", { class: "aislegrid" }, S.config.aisles.filter(a => a !== "Extras").map(a =>

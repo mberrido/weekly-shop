@@ -142,8 +142,3 @@ def test_not_configured(client):
     assert client.get("/api/config").json()["pantry"] is False
     lst = client.get(f"/api/list?week={WEEK}").json()
     assert lst["pantry_ok"] is None and lst["in_pantry"] == []
-
-
-def test_send_list_skips_pantry_items(pclient, fake_api):
-    pclient.post("/api/cookidoo/send-list", json={"week_start": WEEK})
-    assert fake_api.pushed["items"] == ["200 g pasta", "1 red onion"]

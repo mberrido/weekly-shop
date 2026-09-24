@@ -43,12 +43,12 @@ def test_untick_takes_it_off_again(client):
     assert on_list(client, "Kitchen roll") is None
 
 
-def test_per_week_and_delete_from_list(client):
+def test_one_list_whatever_week_and_delete_from_list(client):
     rid = client.post("/api/regulars", json={"name": "Milk"}).json()["id"]
     client.post(f"/api/regulars/{rid}/toggle", json={"week_start": WEEK})
-    assert not regular(client, "Milk", "2026-09-28")["on_list"]        # only this week
+    assert regular(client, "Milk", "2026-09-28")["on_list"]            # there's only one list
     item = on_list(client, "Milk")
-    client.post("/api/list/remove", json={"week_start": WEEK, "key": item["key"]})
+    client.post("/api/list/remove", json={"key": item["key"]})
     assert not regular(client, "Milk")["on_list"]
 
 

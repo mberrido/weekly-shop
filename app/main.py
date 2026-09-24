@@ -25,8 +25,7 @@ from .importer import import_ref, legacy_kind, normalise_kinds, parse_ref
 from .pantry_client import PantryClient
 from .photo_search import PexelsClient, PhotoSearchError
 from .parsing import merge_key
-from .shopping import (build_list, drop_removed, low_products, merge_items, monday_of, pantry_keys, pantry_stock,
-                       planned_meals, restock_signature)
+from .shopping import LIST, build_list, current_items, monday_of, take_off_list
 
 log = logging.getLogger("weekly_shop")
 STATIC = Path(__file__).parent / "static"
@@ -72,18 +71,18 @@ class WeekIn(BaseModel):
 
 
 class CheckIn(BaseModel):
-    week_start: date
+    week_start: date | None = None   # ignored: there's one shopping list
     key: str = Field(min_length=1, max_length=200)
     checked: bool
 
 
 class RemoveIn(BaseModel):
-    week_start: date
+    week_start: date | None = None   # ignored
     key: str = Field(min_length=1, max_length=200)
 
 
 class ExtraIn(BaseModel):
-    week_start: date
+    week_start: date | None = None   # ignored
     name: str = Field(min_length=1, max_length=120)
     qty: str = Field(default="", max_length=40)
 
@@ -91,6 +90,15 @@ class ExtraIn(BaseModel):
 class RegularIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     qty: str = Field(default="", max_length=40)
+
+
+class ListIn(BaseModel):
+    week_start: date | None = None   # ignored: there's one shopping list
+
+
+class QtyIn(BaseModel):
+    key: str = Field(min_length=1, max_length=200)
+    qty: str = Field(default="", max_length=40)   # "" = back to the calculated amount
 
 
 class NameIn(BaseModel):
@@ -448,6 +456,13 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
         with conn() as c:
             c.execute("DELETE FROM plan WHERE id = ?", (plan_id,))
 
+    @app.post("/api/week/clear")
+    def clear_week(body: WeekIn):
+        """Remove every planned meal from one week; their ingredients leave the list."""
+        with conn() as c:
+            cur = c.execute("DELETE FROM plan WHERE week_start = ?", (_ws(body.week_start),))
+            return {"cleared": cur.rowcount}
+
     @app.post("/api/week/copy-last")
     def copy_last_week(body: WeekIn):
         ws = _ws(body.week_start)
@@ -467,12 +482,11 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
     # -- shopping list ------------------------------------------------------
 
     @app.get("/api/list")
-    async def get_list(week: str | None = Query(default=None)):
-        ws = _ws(week)
+    async def get_list():
         products = await pantry.products()
         ok = (products is not None) if pantry.configured else None
         with conn() as c:
-            return build_list(c, ws, products, ok, include_restock=ws == monday_of().isoformat())
+            return build_list(c, products, ok)
 
     # -- Pantry Tracker (read-only) ------------------------------------------
 
@@ -495,77 +509,72 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
 
     @app.post("/api/list/check")
     def check_item(body: CheckIn):
-        ws = _ws(body.week_start)
         with conn() as c:
             if body.checked:
-                c.execute("INSERT OR IGNORE INTO checked(week_start, item_key) VALUES (?,?)", (ws, body.key))
+                c.execute("INSERT OR IGNORE INTO checked(week_start, item_key) VALUES (?,?)", (LIST, body.key))
             else:
-                c.execute("DELETE FROM checked WHERE week_start = ? AND item_key = ?", (ws, body.key))
+                c.execute("DELETE FROM checked WHERE week_start = ? AND item_key = ?", (LIST, body.key))
         return {"ok": True}
 
-    def remove_restock(c, ws: str, key: str, products: list[dict] | None) -> bool:
-        """Hide a low-pantry line until its stock or setting changes."""
-        prod = next((p for p in low_products(products) if f"p:{p['id']}" == key), None)
-        if prod is None:
-            return False
-        c.execute("INSERT INTO removed(week_start, item_key, signature) VALUES (?,?,?) "
-                  "ON CONFLICT(week_start, item_key) DO UPDATE SET signature = excluded.signature",
-                  (ws, key, restock_signature(prod)))
-        return True
+    @app.put("/api/list/qty")
+    def set_qty(body: QtyIn):
+        """Change an item's amount on the list. Extras store it directly; others keep an override."""
+        qty = body.qty.strip()
+        with conn() as c:
+            if body.key.startswith("x:"):
+                c.execute("UPDATE extras SET qty = ? WHERE id = ?", (qty, body.key[2:]))
+            elif qty:
+                c.execute("INSERT INTO qty_overrides(item_key, qty) VALUES (?, ?) "
+                          "ON CONFLICT(item_key) DO UPDATE SET qty = excluded.qty", (body.key, qty))
+            else:
+                c.execute("DELETE FROM qty_overrides WHERE item_key = ?", (body.key,))
+        return {"ok": True}
 
     @app.post("/api/list/remove")
     async def remove_item(body: RemoveIn):
-        """Delete an item from this week's list. Extras are deleted outright; meal
-        ingredients are hidden until something changes (see shopping.drop_removed)."""
-        ws = _ws(body.week_start)
+        """Delete one item from the list (see shopping.take_off_list)."""
         products = await pantry.products() if body.key.startswith("p:") else None
         with conn() as c:
-            if body.key.startswith("x:"):
-                c.execute("DELETE FROM extras WHERE id = ? AND week_start = ?", (body.key[2:], ws))
-            elif body.key.startswith("p:"):
-                if not remove_restock(c, ws, body.key, products):
-                    raise HTTPException(404, "That item isn't on this week's list.")
-            else:
-                item = merge_items(planned_meals(c, ws), pantry_keys(c)).get(body.key)
-                if item is None:
-                    raise HTTPException(404, "That item isn't on this week's list.")
-                c.execute("INSERT INTO removed(week_start, item_key, signature) VALUES (?,?,?) "
-                          "ON CONFLICT(week_start, item_key) DO UPDATE SET signature = excluded.signature",
-                          (ws, body.key, item.signature))
-            c.execute("DELETE FROM checked WHERE week_start = ? AND item_key = ?", (ws, body.key))
+            if not take_off_list(c, body.key, current_items(c), products):
+                raise HTTPException(404, "That item isn't on the list.")
         return {"ok": True}
 
     @app.post("/api/list/empty-basket")
-    async def empty_basket(body: WeekIn):
-        """Take every ticked item off this week's list (they come back if needed again, like Delete)."""
-        ws = _ws(body.week_start)
+    async def empty_basket(_: ListIn | None = None):
+        """Take every ticked item off the list: it's been bought."""
         products = await pantry.products()
         with conn() as c:
-            ticked = [r[0] for r in c.execute("SELECT item_key FROM checked WHERE week_start = ?", (ws,))]
-            items = merge_items(planned_meals(c, ws), pantry_keys(c))
+            ticked = [r[0] for r in c.execute("SELECT item_key FROM checked WHERE week_start = ?", (LIST,))]
+            items = current_items(c)
             for key in ticked:
-                if key.startswith("x:"):
-                    c.execute("DELETE FROM extras WHERE id = ? AND week_start = ?", (key[2:], ws))
-                elif key.startswith("p:"):
-                    remove_restock(c, ws, key, products)
-                elif key in items:
-                    c.execute("INSERT INTO removed(week_start, item_key, signature) VALUES (?,?,?) "
-                              "ON CONFLICT(week_start, item_key) DO UPDATE SET signature = excluded.signature",
-                              (ws, key, items[key].signature))
-            c.execute("DELETE FROM checked WHERE week_start = ?", (ws,))
+                take_off_list(c, key, items, products)
+            c.execute("DELETE FROM checked WHERE week_start = ?", (LIST,))
         return {"emptied": len(ticked)}
 
-    @app.post("/api/list/untick-all")
-    def untick_all(body: WeekIn):
+    @app.post("/api/list/clear")
+    async def clear_list(_: ListIn | None = None):
+        """Take everything off the list. Planning more meals or adding items puts things back."""
+        products = await pantry.products()
+        ok = (products is not None) if pantry.configured else None
         with conn() as c:
-            c.execute("DELETE FROM checked WHERE week_start = ?", (_ws(body.week_start),))
+            keys = [i["key"] for a in build_list(c, products, ok)["aisles"] for i in a["items"]]
+            items = current_items(c)
+            for key in keys:
+                take_off_list(c, key, items, products)
+            c.execute("DELETE FROM checked WHERE week_start = ?", (LIST,))
+        return {"cleared": len(keys)}
+
+    @app.post("/api/list/untick-all")
+    def untick_all(_: ListIn | None = None):
+        with conn() as c:
+            c.execute("DELETE FROM checked WHERE week_start = ?", (LIST,))
         return {"ok": True}
 
     @app.post("/api/extras", status_code=201)
     def add_extra(body: ExtraIn):
         with conn() as c:
             cur = c.execute("INSERT INTO extras(week_start, name, qty) VALUES (?,?,?)",
-                            (_ws(body.week_start), body.name.strip(), body.qty.strip()))
+                            (LIST, body.name.strip(), body.qty.strip()))
             return {"id": cur.lastrowid}
 
     # -- regular items ------------------------------------------------------
@@ -582,9 +591,9 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
             c.execute("DELETE FROM regulars WHERE id = ?", (regular_id,))
 
     @app.post("/api/regulars/{regular_id}/toggle")
-    def toggle_regular(regular_id: int, body: WeekIn):
-        """Put a regular item on this week's list, or take it off again."""
-        ws = _ws(body.week_start)
+    def toggle_regular(regular_id: int, _: ListIn | None = None):
+        """Put a regular item on the list, or take it off again."""
+        ws = LIST
         with conn() as c:
             reg = c.execute("SELECT name, qty FROM regulars WHERE id = ?", (regular_id,)).fetchone()
             if not reg:
@@ -686,33 +695,5 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
                                   (ws, idx, meal_id))
                         added += 1
         return {"added": added, "imported": imported, "skipped": skipped}
-
-    @app.post("/api/cookidoo/send-list")
-    async def cookidoo_send_list(body: WeekIn):
-        ws = _ws(body.week_start)
-        products = await pantry.products()
-        with conn() as c:
-            planned = planned_meals(c, ws)
-            ids = c.execute(
-                """SELECT DISTINCT m.source, m.cookidoo_id FROM plan p JOIN meals m ON m.id = p.meal_id
-                   WHERE p.week_start = ? AND m.cookidoo_id IS NOT NULL ORDER BY p.id""",
-                (ws,),
-            ).fetchall()
-            checked = {r[0] for r in c.execute("SELECT item_key FROM checked WHERE week_start = ?", (ws,))}
-            manual = merge_items([p for p in planned if p.source == "manual"], pantry_keys(c))
-            in_stock = pantry_stock(c, manual, products)
-            everything = merge_items(planned, pantry_keys(c))   # deletions are recorded against the full list
-            deleted = set(everything) - set(drop_removed(c, ws, everything))
-            manual = {k: v for k, v in manual.items() if k not in in_stock and k not in deleted}
-            lines = [f"{i.qty} {i.name}".strip() for i in manual.values() if i.key not in checked]
-            lines += [f"{r['qty']} {r['name']}".strip() for r in
-                      c.execute("SELECT id, name, qty FROM extras WHERE week_start = ? ORDER BY id", (ws,))
-                      if f"x:{r['id']}" not in checked]
-        recipe_ids = [r["cookidoo_id"] for r in ids if r["source"] == "cookidoo"]
-        custom_ids = [r["cookidoo_id"] for r in ids if r["source"] == "cookidoo_custom"]
-        if not (recipe_ids or custom_ids or lines):
-            raise HTTPException(400, "Nothing to send for this week.")
-        await cookidoo.push_list(recipe_ids, custom_ids, lines)
-        return {"recipes": len(recipe_ids) + len(custom_ids), "items": len(lines)}
 
     return app

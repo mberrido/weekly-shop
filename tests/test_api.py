@@ -189,26 +189,6 @@ def test_pull_my_week(client):
     assert client.post("/api/cookidoo/pull-week", json={"week_start": WEEK}).json() == {"added": 0, "imported": 0, "skipped": 3}
 
 
-def test_send_list(client, fake_api):
-    client.post("/api/cookidoo/import", json={"ref": "r10"})
-    cookidoo_meal = client.get("/api/meals").json()[0]
-    manual = make_meal(client, "Toast", ingredients=[{"name": "bread", "qty": 1}, {"name": "butter", "qty": 50, "unit": "g"},
-                                                     {"name": "salt"}])
-    plan(client, cookidoo_meal["id"])
-    plan(client, cookidoo_meal["id"], day=1)
-    plan(client, manual["id"], day=2, servings=8)
-    client.post("/api/extras", json={"week_start": WEEK, "name": "Kitchen roll", "qty": ""})
-    client.post("/api/list/check", json={"week_start": WEEK, "key": "bread", "checked": True})
-    r = client.post("/api/cookidoo/send-list", json={"week_start": WEEK})
-    assert r.json() == {"recipes": 1, "items": 2}
-    assert fake_api.pushed["recipes"] == ["r10"]
-    assert fake_api.pushed["items"] == ["100 g butter", "Kitchen roll"]
-
-
-def test_send_list_empty_week(client):
-    assert client.post("/api/cookidoo/send-list", json={"week_start": WEEK}).status_code == 400
-
-
 def test_healthz_reports_build_version(client, monkeypatch):
     monkeypatch.setenv("APP_VERSION", "595eac9e1f2b3c4d")
     assert client.get("/healthz").json() == {"ok": True, "version": "595eac9"}

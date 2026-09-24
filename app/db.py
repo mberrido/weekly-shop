@@ -58,7 +58,20 @@ CREATE TABLE IF NOT EXISTS extras (
     regular_id INTEGER             -- set when added from a Regular item
 );
 
--- Things bought often; ticking one adds it to the week's list as an extra.
+-- Meal ingredients already bought (or cleared) for a planned meal, so they stay off the list.
+CREATE TABLE IF NOT EXISTS bought (
+    plan_id  INTEGER NOT NULL REFERENCES plan(id) ON DELETE CASCADE,
+    item_key TEXT NOT NULL,
+    PRIMARY KEY (plan_id, item_key)
+);
+
+-- Quantities typed over the calculated ones on the shopping list.
+CREATE TABLE IF NOT EXISTS qty_overrides (
+    item_key TEXT PRIMARY KEY,
+    qty      TEXT NOT NULL
+);
+
+-- Things bought often; ticking one adds it to the list as an extra.
 CREATE TABLE IF NOT EXISTS regulars (
     id   INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -100,7 +113,7 @@ CREATE TABLE IF NOT EXISTS pantry_links (
 """
 
 PANTRY_SEED = ["salt", "water", "black pepper", "ground black pepper", "ice cubes"]
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def connect(path: str) -> sqlite3.Connection:
@@ -156,7 +169,40 @@ def init_db(path: str) -> None:
             cols = {r[1] for r in conn.execute("PRAGMA table_info(extras)")}
             if "regular_id" not in cols:
                 conn.execute("ALTER TABLE extras ADD COLUMN regular_id INTEGER")
+        if version < 6:
+            _to_one_list(conn)
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+
+def _to_one_list(conn: sqlite3.Connection) -> None:
+    """v6: per-week shopping lists become one list.
+
+    Meals from past weeks count as bought (they're history). Ticks, extras, deleted items and
+    hidden pantry lines from this week onwards carry over; older weeks' list state is dropped.
+    """
+    from .parsing import merge_key
+    from .shopping import LIST, merge_items, monday_of, pantry_keys, planned_meals
+
+    this_week = monday_of().isoformat()
+    pantry = pantry_keys(conn)
+    rows = conn.execute("SELECT DISTINCT week_start FROM plan").fetchall()
+    for (ws,) in rows:
+        planned = planned_meals(conn, ws)
+        if ws < this_week:
+            done = [(pm.plan_id, merge_key(i["name"])) for pm in planned for i in pm.ingredients if merge_key(i["name"])]
+        else:
+            # Items deleted from / emptied out of this week's list were bought.
+            gone = {r[0] for r in conn.execute(
+                "SELECT item_key FROM removed WHERE week_start = ? AND item_key NOT LIKE 'p:%'", (ws,))}
+            items = merge_items(planned, pantry)
+            done = [(pid, key) for key in gone if key in items for pid in items[key].plan_ids]
+        conn.executemany("INSERT OR IGNORE INTO bought(plan_id, item_key) VALUES (?, ?)", done)
+    conn.execute("DELETE FROM extras WHERE week_start < ? AND week_start != ?", (this_week, LIST))
+    conn.execute("UPDATE extras SET week_start = ?", (LIST,))
+    for table in ("checked", "removed"):
+        conn.execute(f"DELETE FROM {table} WHERE week_start < ? AND week_start != ?", (this_week, LIST))
+        conn.execute(f"UPDATE OR REPLACE {table} SET week_start = ?", (LIST,))
+    conn.execute("DELETE FROM removed WHERE item_key NOT LIKE 'p:%'")   # meal items now tracked in `bought`
 
 
 def backup(path: str, keep: int = 14) -> Path | None:

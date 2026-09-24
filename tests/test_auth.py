@@ -59,7 +59,7 @@ def test_pages_redirect_to_login(anon):
 def test_public_routes(anon):
     assert anon.get("/healthz").status_code == 200
     login = anon.get("/login")
-    assert login.status_code == 200 and 'inputmode="numeric"' in login.text and 'name="pin"' in login.text
+    assert login.status_code == 200 and 'id="pad"' in login.text and 'name="pin"' in login.text
     assert anon.get("/manifest.webmanifest").status_code == 200
     assert anon.get("/icons/icon-192.png").status_code == 200
 

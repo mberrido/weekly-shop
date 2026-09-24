@@ -21,7 +21,7 @@ from . import auth, db
 from .aisles import AISLES
 from .config import ConfigError, Settings, load_settings
 from .cookidoo_service import CookidooError, CookidooService
-from .importer import import_ref, parse_ref
+from .importer import import_ref, legacy_kind, normalise_kinds, parse_ref
 from .pantry_client import PantryClient
 from .photo_search import PexelsClient, PhotoSearchError
 from .parsing import merge_key
@@ -47,7 +47,8 @@ class IngredientIn(BaseModel):
 
 class MealIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
-    kind: Kind = "dinner"
+    kinds: list[Slot] | None = Field(default=None, min_length=1)   # meal times
+    kind: Kind | None = None                                       # older single value; 'any' = all
     servings: int = Field(default=4, ge=1, le=50)
     url: str | None = Field(default=None, max_length=500)
     ingredients: list[IngredientIn] = Field(default_factory=list, max_length=200)
@@ -107,7 +108,8 @@ class PexelsPickIn(BaseModel):
 
 class ImportIn(BaseModel):
     ref: str = Field(min_length=2, max_length=500)
-    kind: Kind = "dinner"
+    kinds: list[Slot] | None = Field(default=None, min_length=1)
+    kind: Kind | None = "dinner"
 
 
 # -- helpers -----------------------------------------------------------------
@@ -130,6 +132,7 @@ def _meal_rows(conn, where: str = "", args: tuple = ()) -> list[dict]:
         ings[r["meal_id"]].append({k: r[k] for k in ("name", "qty", "unit", "note")})
     for m in meals:
         m["ingredients"] = ings[m["id"]]
+        m["kinds"] = normalise_kinds([k for k in (m.get("kinds") or "").split(",") if k], m.get("kind"))
         m["photo_url"] = f"/photos/{m['photo']}" if m.get("photo") else None
     return meals
 
@@ -261,8 +264,9 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
     def create_meal(body: MealIn, background: BackgroundTasks, auto_photo: bool = True):
         with conn() as c:
             cur = c.execute(
-                "INSERT INTO meals(name, kind, source, servings, url) VALUES (?,?,'manual',?,?)",
-                (body.name.strip(), body.kind, body.servings, body.url),
+                "INSERT INTO meals(name, kind, kinds, source, servings, url) VALUES (?,?,?,'manual',?,?)",
+                (body.name.strip(), legacy_kind(kinds := normalise_kinds(body.kinds, body.kind)), ",".join(kinds),
+                 body.servings, body.url),
             )
             _write_ingredients(c, cur.lastrowid, body.ingredients)
             meal = _meal_rows(c, "WHERE id = ?", (cur.lastrowid,))[0]
@@ -274,8 +278,9 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
     def update_meal(meal_id: int, body: MealIn):
         with conn() as c:
             cur = c.execute(
-                "UPDATE meals SET name = ?, kind = ?, servings = ?, url = COALESCE(?, url) WHERE id = ?",
-                (body.name.strip(), body.kind, body.servings, body.url, meal_id),
+                "UPDATE meals SET name = ?, kind = ?, kinds = ?, servings = ?, url = COALESCE(?, url) WHERE id = ?",
+                (body.name.strip(), legacy_kind(kinds := normalise_kinds(body.kinds, body.kind)), ",".join(kinds),
+                 body.servings, body.url, meal_id),
             )
             if cur.rowcount == 0:
                 raise HTTPException(404, "Meal not found")
@@ -510,6 +515,23 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
             c.execute("DELETE FROM checked WHERE week_start = ? AND item_key = ?", (ws, body.key))
         return {"ok": True}
 
+    @app.post("/api/list/empty-basket")
+    def empty_basket(body: WeekIn):
+        """Take every ticked item off this week's list (they come back if needed again, like Delete)."""
+        ws = _ws(body.week_start)
+        with conn() as c:
+            ticked = [r[0] for r in c.execute("SELECT item_key FROM checked WHERE week_start = ?", (ws,))]
+            items = merge_items(planned_meals(c, ws), pantry_keys(c))
+            for key in ticked:
+                if key.startswith("x:"):
+                    c.execute("DELETE FROM extras WHERE id = ? AND week_start = ?", (key[2:], ws))
+                elif key in items:
+                    c.execute("INSERT INTO removed(week_start, item_key, signature) VALUES (?,?,?) "
+                              "ON CONFLICT(week_start, item_key) DO UPDATE SET signature = excluded.signature",
+                              (ws, key, items[key].signature))
+            c.execute("DELETE FROM checked WHERE week_start = ?", (ws,))
+        return {"emptied": len(ticked)}
+
     @app.post("/api/list/untick-all")
     def untick_all(body: WeekIn):
         with conn() as c:
@@ -576,7 +598,7 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
             ref_kind, rid = parse_ref(body.ref)
         except ValueError as e:
             raise HTTPException(400, str(e))
-        meal_id, created = await import_ref(conn, cookidoo, ref_kind, rid, body.kind)
+        meal_id, created = await import_ref(conn, cookidoo, ref_kind, rid, normalise_kinds(body.kinds, body.kind))
         with conn() as c:
             meal = _meal_rows(c, "WHERE id = ?", (meal_id,))[0]
         return {"meal": meal, "created": created}
@@ -597,7 +619,7 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
             refs = [("recipe", r.id) for r in (d.recipes or [])]
             refs += [("custom", cid) for cid in (getattr(d, "customer_recipe_ids", None) or [])]
             for ref_kind, rid in refs:
-                meal_id, created = await import_ref(conn, cookidoo, ref_kind, rid, "dinner")
+                meal_id, created = await import_ref(conn, cookidoo, ref_kind, rid, ["dinner"])
                 imported += created
                 with conn() as c:
                     exists = c.execute(

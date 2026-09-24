@@ -98,7 +98,7 @@ h1, h2, h3 { font-family: var(--display); letter-spacing: -.02em; margin: 0; }
 }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 .btn.danger { color: var(--danger); }
-.btn.armed { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.armed, .btn.ghost.armed { background: var(--danger); border-color: var(--danger); color: #fff; }
 .btn.ghost { background: transparent; }
 .btn:disabled { opacity: .5; cursor: default; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
@@ -140,7 +140,10 @@ h1, h2, h3 { font-family: var(--display); letter-spacing: -.02em; margin: 0; }
 .count .l { font: 600 18px var(--display); }
 .sub { color: var(--ink-2); margin: 0 0 16px; font-size: 14px; }
 .aisle { margin: 20px 0 6px; display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); font-family: var(--body); }
-.aisle.basket { margin-top: 32px; color: var(--accent); }
+.aisle.basket { margin-top: 32px; color: var(--accent); flex: 1; }
+.baskethead { display: flex; align-items: center; gap: 10px; margin-top: 32px; margin-bottom: 6px; }
+.baskethead .aisle.basket { margin: 0; }
+.btn.small { min-height: 36px; padding: 0 12px; font-size: 13px; }
 .aisle::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 ul.items { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); }
 ul.items li { display: flex; align-items: stretch; border-top: 1px solid var(--line); }
@@ -350,7 +353,8 @@ function weekLabel(ws) {
 }
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const SLOTS = ["breakfast", "lunch", "dinner"];
-const KINDS = ["breakfast", "lunch", "dinner", "any"];
+const KINDS = ["breakfast", "lunch", "dinner"];
+const mealTimesText = kinds => kinds.length === KINDS.length ? "Any meal" : kinds.map(cap).join(", ");
 
 // ---------------------------------------------------------------- ingredient parsing (mirrors app/parsing.py)
 const FR = { "½": .5, "¼": .25, "¾": .75, "⅓": 1 / 3, "⅔": 2 / 3, "⅛": .125 };
@@ -510,14 +514,7 @@ function renderWeek() {
       const r = await api("/api/week/copy-last", { method: "POST", body: { week_start: S.week } });
       toast(r.copied ? `Copied ${r.copied} meal${r.copied === 1 ? "" : "s"} from last week` : "Nothing new to copy from last week");
       await refresh();
-    }) }, "Copy last week"),
-    S.config.cookidoo && h("button", { type: "button", class: "btn", onclick: e => run(e.currentTarget, async () => {
-      toast("Fetching My Week from Cookidoo…");
-      const r = await api("/api/cookidoo/pull-week", { method: "POST", body: { week_start: S.week } });
-      toast(r.added ? `Added ${r.added} dinner${r.added === 1 ? "" : "s"}${r.imported ? ` · ${r.imported} new recipe${r.imported === 1 ? "" : "s"} imported` : ""}`
-                    : (r.skipped ? "Already up to date" : "Nothing planned in Cookidoo this week"));
-      await Promise.all([refresh(), loadMeals()]);
-    }) }, "Pull Cookidoo My Week"));
+    }) }, "Copy last week"));
   const days = wd.days.map((d, i) => {
     const date = parseIso(d);
     const isToday = d === today;
@@ -546,12 +543,12 @@ function pickerSheet(day, slot) {
   const draw = () => {
     const q = search.value.trim().toLowerCase();
     const ms = S.meals.filter(m => !q || m.name.toLowerCase().includes(q));
-    const fit = ms.filter(m => m.kind === slot || m.kind === "any");
-    const rest = ms.filter(m => !(m.kind === slot || m.kind === "any"));
+    const fit = ms.filter(m => m.kinds.includes(slot));
+    const rest = ms.filter(m => !m.kinds.includes(slot));
     const item = m => h("button", { type: "button", class: "pick", onclick: e => run(e.currentTarget, async () => {
         await api("/api/plan", { method: "POST", body: { week_start: S.week, day, slot, meal_id: m.id } });
         closeSheet(); toast(`Added ${m.name}`); await refresh();
-      }) }, mealThumb(m), h("span", {}, h("span", { class: "t", text: m.name }), h("br"), h("span", { class: "meta", text: `${cap(m.kind)} · serves ${m.servings}` })));
+      }) }, mealThumb(m), h("span", {}, h("span", { class: "t", text: m.name }), h("br"), h("span", { class: "meta", text: `${mealTimesText(m.kinds)} · serves ${m.servings}` })));
     fill(results, 
       !S.meals.length && h("p", { class: "empty", text: "No meals yet. Add some in the Meals tab." }),
       fit.length ? [h("div", { class: "grouplabel", text: `For ${slot}` }), fit.map(item)] : null,
@@ -588,7 +585,7 @@ function renderMeals() {
   const filters = h("div", { class: "filters", role: "group", "aria-label": "Filter meals" },
     ["all", ...KINDS].map(k => h("button", { type: "button", "aria-pressed": String(S.mealFilter === k),
       onclick: () => { S.mealFilter = k; store.set("mealFilter", k); renderMeals(); } }, cap(k))));
-  const shown = S.meals.filter(m => S.mealFilter === "all" || m.kind === S.mealFilter);
+  const shown = S.meals.filter(m => S.mealFilter === "all" || m.kinds.includes(S.mealFilter));
   fill(v, 
     h("div", { class: "actions" },
       h("button", { type: "button", class: "btn primary", onclick: () => mealSheet(null) }, "+ New meal"),
@@ -598,16 +595,18 @@ function renderMeals() {
       mealThumb(m),
       h("span", {},
         h("span", { class: "t", text: m.name }), h("br"),
-        h("span", { class: "meta", text: `${cap(m.kind)} · serves ${m.servings} · ${m.ingredients.length} ingredient${m.ingredients.length === 1 ? "" : "s"}` }),
+        h("span", { class: "meta", text: `${mealTimesText(m.kinds)} · serves ${m.servings} · ${m.ingredients.length} ingredient${m.ingredients.length === 1 ? "" : "s"}` }),
         m.source !== "manual" && [h("br"), h("span", { class: "src", text: "Cookidoo" })])))
     : h("div", { class: "empty" }, h("h2", { text: S.meals.length ? "Nothing here" : "No meals yet" }),
-        h("p", { text: S.meals.length ? "No meals of this kind." : "Add the meals you cook regularly, or import them from Cookidoo." })));
+        h("p", { text: S.meals.length ? "No meals for this meal time." : "Add the meals you cook regularly, or import them from Cookidoo." })));
 }
 
-function kindSeg(name, value) {
-  return h("div", { class: "seg", role: "radiogroup", "aria-label": "Meal kind" },
-    KINDS.map(k => h("label", {}, h("input", { type: "radio", name, value: k, checked: k === value }), h("span", { text: cap(k) }))));
+// Meal time: tick one or more of breakfast / lunch / dinner.
+function mealTimes(name, values) {
+  return h("div", { class: "seg", role: "group", "aria-label": "Meal time" },
+    KINDS.map(k => h("label", {}, h("input", { type: "checkbox", name, value: k, checked: values.includes(k) }), h("span", { text: cap(k) }))));
 }
+const checkedTimes = el => [...el.querySelectorAll("input[type=checkbox]:checked")].map(i => i.value);
 
 // Shrink a picked/taken photo to a JPEG (max 1200 px) before upload. Also bakes in camera rotation.
 async function shrinkPhoto(file, max = 1200) {
@@ -638,7 +637,7 @@ async function uploadPhoto(mealId, blob) {
 
 function mealSheet(meal, defaultKind) {
   const isNew = !meal;
-  meal = meal || { name: "", kind: defaultKind || "dinner", servings: 4, ingredients: [] };
+  meal = meal || { name: "", kinds: [defaultKind || "dinner"], servings: 4, ingredients: [] };
   const name = h("input", { type: "text", required: true, maxLength: 120, value: meal.name, autocomplete: "off", id: "f-name" });
   const serves = h("input", { type: "number", min: 1, max: 50, value: meal.servings, inputMode: "numeric", id: "f-serves" });
   const ta = h("textarea", { id: "f-ings", placeholder: "500 g chicken thighs\n2 red onions\n200g flour\nwraps",
@@ -724,7 +723,9 @@ function mealSheet(meal, defaultKind) {
 
   const form = h("form", { onsubmit: async e => {
     e.preventDefault();
-    const body = { name: name.value.trim(), kind: form.querySelector("input[name=kind]:checked").value,
+    const kinds = checkedTimes(form);
+    if (!kinds.length) { toast("Tick at least one meal time"); return; }
+    const body = { name: name.value.trim(), kinds,
       servings: Math.max(1, Math.min(50, parseInt(serves.value, 10) || 4)),
       ingredients: ta.value.split("\n").map(l => l.trim()).filter(Boolean).map(parseLine).filter(i => i.name) };
     await run(form.querySelector("button[type=submit]"), async () => {
@@ -744,7 +745,7 @@ function mealSheet(meal, defaultKind) {
   } },
     h("label", { class: "field", for: "f-name" }, h("span", { class: "lab", text: "Name" }), name),
     photoField,
-    h("div", { class: "field" }, h("span", { class: "lab", text: "Kind" }), kindSeg("kind", meal.kind)),
+    h("div", { class: "field" }, h("span", { class: "lab", text: "Meal time" }), mealTimes("kinds", meal.kinds)),
     h("label", { class: "field", for: "f-serves" }, h("span", { class: "lab", text: "Serves" }), serves),
     h("label", { class: "field", for: "f-ings" }, h("span", { class: "lab", text: "Ingredients, one per line" }), ta,
       h("div", { class: "hint", text: "Quantity and unit first, e.g. “500 g chicken thighs”. Add notes after a comma." }), preview),
@@ -761,12 +762,13 @@ function mealSheet(meal, defaultKind) {
 function importSheet() {
   const status = h("p", { class: "status", "aria-live": "polite" });
   const ref = h("input", { type: "text", id: "imp-ref", placeholder: "https://cookidoo.co.uk/recipes/recipe/en-GB/r59322", autocomplete: "off", inputMode: "url" });
-  const kindWrap = kindSeg("impkind", "dinner");
-  const kind = () => kindWrap.querySelector("input:checked").value;
+  const kindWrap = mealTimes("impkinds", ["dinner"]);
   const doImport = async (r, btn) => run(btn, async () => {
     status.textContent = "Importing…";
     try {
-      const res = await api("/api/cookidoo/import", { method: "POST", body: { ref: r, kind: kind() } });
+      const kinds = checkedTimes(kindWrap);
+      if (!kinds.length) { status.textContent = "Tick at least one meal time."; return; }
+      const res = await api("/api/cookidoo/import", { method: "POST", body: { ref: r, kinds } });
       await loadMeals(); render();
       status.textContent = "";
       toast(res.created ? `Imported ${res.meal.name}` : `${res.meal.name} is already in your meals`);
@@ -794,7 +796,7 @@ function importSheet() {
   openSheet("Import from Cookidoo",
     h("form", { onsubmit: e => { e.preventDefault(); if (ref.value.trim()) doImport(ref.value.trim(), e.target.querySelector("button")); } },
       h("label", { class: "field", for: "imp-ref" }, h("span", { class: "lab", text: "Recipe link or ID" }), ref),
-      h("div", { class: "field" }, h("span", { class: "lab", text: "Save as" }), kindWrap),
+      h("div", { class: "field" }, h("span", { class: "lab", text: "Meal time" }), kindWrap),
       h("button", { type: "submit", class: "btn primary" }, "Import")),
     h("p", { class: "or", text: "or search" }),
     h("label", { for: "imp-q", class: "sr-only", text: "Search Cookidoo" }), q, status, results);
@@ -863,7 +865,12 @@ function renderList() {
       h("h3", { class: "aisle", text: `${a.name} · ${a.items.length}` }),
       h("ul", { class: "items" }, a.items.map(itemRow))]),
     done.length > 0 && [
-      h("h3", { class: "aisle basket", text: `In the basket · ${done.length}` }),
+      h("div", { class: "baskethead" },
+        h("h3", { class: "aisle basket", text: `In the basket · ${done.length}` }),
+        h("button", { type: "button", class: "btn ghost small", disabled: L.offline, onclick: e => confirmTap(e.currentTarget, "Tap again to empty", async () => {
+          const r = await api("/api/list/empty-basket", { method: "POST", body: { week_start: S.week } });
+          toast(`Emptied ${r.emptied} item${r.emptied === 1 ? "" : "s"} from the basket`); await refresh();
+        }) }, "Empty basket")),
       h("ul", { class: "items" }, done.map(itemRow))],
     h("form", { class: "extra", onsubmit: e => { e.preventDefault(); run(e.target.querySelector("button"), async () => {
       await api("/api/extras", { method: "POST", body: { week_start: S.week, name: extraName.value.trim(), qty: extraQty.value.trim() } });

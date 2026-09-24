@@ -14,6 +14,23 @@ _CUSTOM_URL = re.compile(r"created-recipes/[A-Za-z-]+/([A-Za-z0-9-]{6,})")
 _CUSTOM_ID = re.compile(r"^[A-Za-z0-9-]{10,}$")
 
 
+MEAL_TIMES = ("breakfast", "lunch", "dinner")
+
+
+def normalise_kinds(kinds: list[str] | None, kind: str | None = None) -> list[str]:
+    """Meal times in a fixed order. Accepts the old single `kind` ('any' = all three)."""
+    if kinds:
+        return [k for k in MEAL_TIMES if k in set(kinds)]
+    if not kind or kind == "any":
+        return list(MEAL_TIMES)
+    return [kind]
+
+
+def legacy_kind(kinds: list[str]) -> str:
+    """Value for the old single-`kind` column, kept for older databases."""
+    return kinds[0] if len(kinds) == 1 else "any"
+
+
 def parse_ref(text: str) -> tuple[str, str]:
     """Return ('recipe'|'custom', id) from an ID or a Cookidoo URL."""
     text = (text or "").strip()
@@ -26,11 +43,11 @@ def parse_ref(text: str) -> tuple[str, str]:
     raise ValueError("That doesn't look like a Cookidoo recipe link or ID (e.g. r59322).")
 
 
-def _insert_meal(conn: sqlite3.Connection, *, name: str, kind: str, source: str, cookidoo_id: str,
+def _insert_meal(conn: sqlite3.Connection, *, name: str, kinds: list[str], source: str, cookidoo_id: str,
                  servings: int, url: str | None, image: str | None, ingredients: list[dict]) -> int:
     cur = conn.execute(
-        "INSERT INTO meals(name, kind, source, cookidoo_id, servings, url, image) VALUES (?,?,?,?,?,?,?)",
-        (name, kind, source, cookidoo_id, max(1, int(servings or 4)), url, image),
+        "INSERT INTO meals(name, kind, kinds, source, cookidoo_id, servings, url, image) VALUES (?,?,?,?,?,?,?,?)",
+        (name, legacy_kind(kinds), ",".join(kinds), source, cookidoo_id, max(1, int(servings or 4)), url, image),
     )
     meal_id = cur.lastrowid
     conn.executemany(
@@ -60,7 +77,7 @@ def custom_to_ingredients(recipe: Any) -> list[dict]:
 
 
 async def import_ref(conn_factory, svc: CookidooService, kind_of_ref: str, cookidoo_id: str,
-                     meal_kind: str) -> tuple[int, bool]:
+                     meal_kinds: list[str]) -> tuple[int, bool]:
     """Import one recipe; returns (meal_id, created). Skips if already imported.
 
     `conn_factory` is a context manager factory so the DB isn't held open
@@ -80,4 +97,4 @@ async def import_ref(conn_factory, svc: CookidooService, kind_of_ref: str, cooki
     with conn_factory() as conn:
         if (mid := existing_meal(conn, cookidoo_id)) is not None:  # raced with another import
             return mid, False
-        return _insert_meal(conn, kind=meal_kind, cookidoo_id=cookidoo_id, **fields), True
+        return _insert_meal(conn, kinds=meal_kinds, cookidoo_id=cookidoo_id, **fields), True

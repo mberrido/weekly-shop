@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS meals (
     image       TEXT,          -- Cookidoo image URL
     photo       TEXT,          -- photo file name in <data>/photos (uploaded or from Pexels)
     photo_credit TEXT,         -- e.g. 'Jane Doe / Pexels'
-    no_auto_photo INTEGER NOT NULL DEFAULT 0   -- set when the user removes a photo
+    no_auto_photo INTEGER NOT NULL DEFAULT 0,  -- set when the user removes a photo
+    kinds       TEXT NOT NULL DEFAULT ''       -- meal times, e.g. 'lunch,dinner' (supersedes kind)
 );
 
 CREATE TABLE IF NOT EXISTS ingredients (
@@ -91,7 +92,7 @@ CREATE TABLE IF NOT EXISTS pantry_links (
 """
 
 PANTRY_SEED = ["salt", "water", "black pepper", "ground black pepper", "ice cubes"]
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def connect(path: str) -> sqlite3.Connection:
@@ -137,6 +138,12 @@ def init_db(path: str) -> None:
                 conn.execute("ALTER TABLE meals ADD COLUMN photo_credit TEXT")
             if "no_auto_photo" not in cols:
                 conn.execute("ALTER TABLE meals ADD COLUMN no_auto_photo INTEGER NOT NULL DEFAULT 0")
+        if version < 4:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(meals)")}
+            if "kinds" not in cols:
+                conn.execute("ALTER TABLE meals ADD COLUMN kinds TEXT NOT NULL DEFAULT ''")
+            conn.execute("UPDATE meals SET kinds = CASE kind WHEN 'any' THEN 'breakfast,lunch,dinner' ELSE kind END "
+                         "WHERE kinds = ''")
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 

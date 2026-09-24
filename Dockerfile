@@ -19,6 +19,10 @@ RUN pip install -r requirements.txt
 
 COPY app ./app
 
+# Git commit the image was built from, shown by /healthz (set by CI; "dev" locally).
+ARG GIT_SHA=dev
+ENV APP_VERSION=$GIT_SHA
+
 # Default non-root user; docker-compose overrides the uid/gid with PUID/PGID.
 RUN useradd --system --uid 1000 --no-create-home --shell /usr/sbin/nologin app \
  && mkdir -p /data && chown app /data

@@ -222,7 +222,7 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
     def healthz():
         with conn() as c:
             c.execute("SELECT 1").fetchone()
-        return {"ok": True}
+        return {"ok": True, "version": (os.environ.get("APP_VERSION") or "dev")[:7]}
 
     @app.get("/", include_in_schema=False)
     def index():

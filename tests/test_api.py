@@ -31,7 +31,7 @@ def items_by_name(lst):
 
 
 def test_healthz(client):
-    assert client.get("/healthz").json() == {"ok": True}
+    assert client.get("/healthz").json() == {"ok": True, "version": "dev"}
 
 
 def test_meal_crud(client):
@@ -207,3 +207,8 @@ def test_send_list(client, fake_api):
 
 def test_send_list_empty_week(client):
     assert client.post("/api/cookidoo/send-list", json={"week_start": WEEK}).status_code == 400
+
+
+def test_healthz_reports_build_version(client, monkeypatch):
+    monkeypatch.setenv("APP_VERSION", "595eac9e1f2b3c4d")
+    assert client.get("/healthz").json() == {"ok": True, "version": "595eac9"}

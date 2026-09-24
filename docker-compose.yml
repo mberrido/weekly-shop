@@ -1,0 +1,37 @@
+services:
+  weekly-shop:
+    build: .
+    image: weekly-shop:latest
+    container_name: weekly-shop
+    restart: unless-stopped
+    # Run as the DSM user that owns the data folder (set PUID/PGID in .env).
+    user: "${PUID:-1026}:${PGID:-100}"
+    env_file: .env
+    environment:
+      TZ: Europe/London
+      DB_PATH: /data/shop.db
+      # Trust X-Forwarded-For only from localhost and this network's gateway,
+      # which is where DSM's reverse proxy / tailscale serve connect from.
+      FORWARDED_ALLOW_IPS: "127.0.0.1,172.30.84.1"
+    ports:
+      # Localhost only: reachable through the reverse proxy / tailscale serve,
+      # never directly from the LAN or the internet. Avoids DSM's 5000/5001.
+      - "127.0.0.1:8420:8000"
+    volumes:
+      - ${DATA_DIR:-/volume1/docker/weekly-shop/data}:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - shop
+
+networks:
+  shop:
+    ipam:
+      config:
+        - subnet: 172.30.84.0/24
+          gateway: 172.30.84.1

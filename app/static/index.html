@@ -1,0 +1,979 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Weekly Shop</title>
+<meta name="description" content="Family meal planner and shopping list">
+<meta name="theme-color" content="#F3F5F2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F1A15" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Weekly Shop">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&display=swap">
+<style>
+:root {
+  --paper: #F3F5F2;
+  --surface: #FFFFFF;
+  --surface-2: #E9EEEA;
+  --ink: #17362A;
+  --ink-2: #53685C;
+  --line: #D6DED8;
+  --accent: #3F8F4E;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #DCEEDD;
+  --mustard: #E3B23C;
+  --mustard-soft: #F7EBC4;
+  --danger: #B3412E;
+  --shadow: 0 1px 2px rgba(23,54,42,.06), 0 4px 16px rgba(23,54,42,.06);
+  --display: "Bricolage Grotesque", "Helvetica Neue", "Arial Nova", Arial, system-ui, sans-serif;
+  --body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --r: 14px;
+  --tabbar: 64px;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0F1A15;
+    --surface: #16241D;
+    --surface-2: #1D2F26;
+    --ink: #E3EEE6;
+    --ink-2: #9DB3A6;
+    --line: #2A4135;
+    --accent: #6CC17D;
+    --accent-ink: #0C1A12;
+    --accent-soft: #1F3A28;
+    --mustard: #E8BE55;
+    --mustard-soft: #3A3218;
+    --danger: #F08A76;
+    --shadow: 0 1px 2px rgba(0,0,0,.3);
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--paper); color: var(--ink);
+  font: 16px/1.4 var(--body);
+  padding-bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 24px);
+  -webkit-tap-highlight-color: transparent;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; border-radius: 8px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+[hidden] { display: none !important; }
+
+/* header */
+header.top {
+  position: sticky; top: 0; z-index: 10;
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+  padding: calc(env(safe-area-inset-top) + 8px) max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));
+  display: flex; align-items: center; gap: 8px;
+}
+.brand { font: 800 17px/1 var(--display); letter-spacing: -.02em; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand span { color: var(--accent); }
+.weeksw { display: flex; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; }
+.weeksw button { background: none; border: 0; min-width: 38px; height: 44px; font-size: 20px; line-height: 1; }
+.weeksw .label { font: 600 15px/1 var(--display); min-width: 96px; padding: 0 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.iconbtn { background: none; border: 0; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; color: var(--ink-2); }
+.iconbtn svg { width: 22px; height: 22px; }
+
+main { max-width: 640px; margin: 0 auto; padding: 16px max(16px, env(safe-area-inset-left)) 0; }
+h1, h2, h3 { font-family: var(--display); letter-spacing: -.02em; margin: 0; }
+
+/* buttons */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 44px; padding: 0 16px; border-radius: 12px; border: 1px solid var(--line);
+  background: var(--surface); font-weight: 600; font-size: 15px; text-decoration: none; color: var(--ink);
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.danger { color: var(--danger); }
+.btn.armed { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.ghost { background: transparent; }
+.btn:disabled { opacity: .5; cursor: default; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+
+/* week */
+.day {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+  margin-bottom: 12px; padding: 12px 12px 6px; box-shadow: var(--shadow);
+}
+.day.today { border-color: var(--mustard); box-shadow: inset 4px 0 0 var(--mustard), var(--shadow); }
+.dayhead { display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px 4px; }
+.dayhead h2 { font-size: 26px; font-weight: 800; }
+.dayhead .date { color: var(--ink-2); font-size: 14px; }
+.badge { font: 700 11px/1 var(--body); letter-spacing: .06em; text-transform: uppercase; padding: 4px 7px; border-radius: 6px; background: var(--mustard-soft); color: var(--ink); }
+.slot { display: grid; grid-template-columns: 70px 1fr 44px; align-items: center; gap: 6px; border-top: 1px dashed var(--line); padding: 4px 0; min-height: 52px; }
+.slot:first-of-type { border-top: 0; }
+.slotname { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); padding-left: 4px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.chip { display: inline-flex; align-items: center; max-width: 100%; background: var(--accent-soft); border-radius: 10px; padding: 3px 0 3px 10px; min-height: 40px; }
+.chip .nm { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; font-size: 14px; line-height: 1.2; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.chip button { flex: none; background: none; border: 0; min-width: 32px; height: 40px; color: var(--ink-2); font-size: 13px; }
+.chip .serv { font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; padding: 0 2px 0 6px; min-width: 34px; }
+.addbtn { width: 44px; height: 44px; border-radius: 12px; border: 1.5px dashed var(--line); background: none; font-size: 22px; color: var(--accent); }
+.addbtn:hover { border-color: var(--accent); }
+
+/* meals */
+.filters { display: flex; gap: 6px; overflow-x: auto; margin: 0 -16px 12px; padding: 2px 16px; scrollbar-width: none; }
+.filters button { flex: none; min-height: 38px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-weight: 600; font-size: 14px; }
+.filters button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.mealcard { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 10px; margin-bottom: 8px; box-shadow: var(--shadow); }
+.thumb { width: 52px; height: 52px; border-radius: 10px; object-fit: cover; flex: none; background: var(--surface-2); display: grid; place-items: center; font: 800 20px var(--display); color: var(--accent); }
+.mealcard .t { font-weight: 700; }
+.meta { color: var(--ink-2); font-size: 13px; }
+.src { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--accent); }
+
+/* list */
+.count { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 2px; }
+.count .n { font: 800 64px/0.95 var(--display); letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+.count .l { font: 600 18px var(--display); }
+.sub { color: var(--ink-2); margin: 0 0 16px; font-size: 14px; }
+.aisle { margin: 20px 0 6px; display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); font-family: var(--body); }
+.aisle.basket { margin-top: 32px; color: var(--accent); }
+.aisle::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+ul.items { list-style: none; margin: 0; padding: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); }
+ul.items li { display: flex; align-items: stretch; border-top: 1px solid var(--line); }
+ul.items li:first-child { border-top: 0; }
+.tick { flex: none; width: 56px; background: none; border: 0; display: grid; place-items: center; }
+.tick span { width: 26px; height: 26px; border-radius: 50%; border: 2px solid var(--accent); display: grid; place-items: center; transition: background .15s, transform .15s; }
+.tick span svg { width: 16px; height: 16px; opacity: 0; color: var(--accent-ink); }
+li.done .tick span { background: var(--accent); }
+li.done .tick span svg { opacity: 1; }
+.itemmain { flex: 1; min-width: 0; background: none; border: 0; text-align: left; padding: 10px 12px 10px 0; min-height: 56px; }
+.itemmain .row { display: flex; gap: 8px; align-items: baseline; }
+.itemmain .nm { font-weight: 600; overflow-wrap: anywhere; }
+.itemmain .q { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 700; white-space: nowrap; font-size: 15px; }
+li.done .nm, li.done .q { text-decoration: line-through; color: var(--ink-2); font-weight: 500; }
+.for { color: var(--ink-2); font-size: 12.5px; }
+form.extra { display: grid; grid-template-columns: 1fr 96px auto; gap: 8px; margin-top: 20px; }
+input[type=text], input[type=search], input[type=number], textarea, select {
+  width: 100%; min-height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); padding: 10px 12px; font-size: 16px;
+}
+textarea { min-height: 200px; resize: vertical; line-height: 1.5; }
+.pantry { display: flex; flex-wrap: wrap; gap: 6px; }
+.pchip { display: inline-flex; align-items: center; gap: 2px; padding-left: 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-size: 14px; }
+.pchip button { background: none; border: 0; width: 36px; height: 36px; color: var(--ink-2); }
+.pchip.armed { border-color: var(--danger); }
+.pchip button.armed { width: auto; height: 30px; margin: 3px 3px 3px 6px; padding: 0 12px; border-radius: 999px;
+  background: var(--danger); color: #fff; font-size: 13px; font-weight: 700; }
+button.pchip.stock { gap: 6px; padding: 0 14px; min-height: 36px; border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+button.pchip.stock .from { color: var(--ink-2); font-size: 12.5px; }
+.pantrynote { color: var(--ink-2); font-size: 13px; margin: 0 0 8px; }
+.pick .qty { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pick.out { opacity: .6; }
+.empty { text-align: center; padding: 32px 16px; color: var(--ink-2); }
+.empty h2 { color: var(--ink); font-size: 22px; margin-bottom: 6px; }
+.offline { background: var(--mustard-soft); border-radius: 10px; padding: 8px 12px; font-size: 14px; margin-bottom: 12px; }
+
+/* tab bar */
+nav.tabs {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  background: var(--surface); border-top: 1px solid var(--line);
+  padding: 4px max(8px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(8px, env(safe-area-inset-left));
+}
+nav.tabs button { background: none; border: 0; height: var(--tabbar); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+nav.tabs svg { width: 24px; height: 24px; }
+nav.tabs button[aria-selected="true"] { color: var(--accent); }
+nav.tabs button[aria-selected="true"] svg { stroke-width: 2.4; }
+
+/* sheets */
+dialog.sheet {
+  border: 0; padding: 0; margin: auto auto 0; width: 100%; max-width: 560px; max-height: 88vh;
+  border-radius: 20px 20px 0 0; background: var(--paper); color: var(--ink);
+  box-shadow: 0 -8px 40px rgba(0,0,0,.2);
+}
+@media (min-width: 600px) { dialog.sheet { margin: auto; border-radius: 20px; } }
+dialog.sheet::backdrop { background: rgba(10,25,18,.45); }
+dialog.sheet[open] { animation: up .2s ease-out; }
+@keyframes up { from { transform: translateY(24px); opacity: 0; } }
+.sheet-in { padding: 18px 16px calc(16px + env(safe-area-inset-bottom)); overflow-y: auto; max-height: 88vh; }
+.sheet-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.sheet-head h2 { flex: 1; font-size: 22px; font-weight: 800; }
+.pick { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px; margin-bottom: 6px; min-height: 52px; }
+.pick .thumb { width: 40px; height: 40px; font-size: 16px; }
+.grouplabel { font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); margin: 14px 0 6px; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg label { position: relative; }
+.seg input { position: absolute; opacity: 0; inset: 0; }
+.seg span { display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); font-weight: 600; font-size: 14px; }
+.seg input:checked + span { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.seg input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 2px; }
+.field { display: block; margin-bottom: 14px; }
+.field > .lab { display: block; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+.hint { color: var(--ink-2); font-size: 13px; margin-top: 6px; }
+.preview { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.preview span { font-size: 12.5px; background: var(--surface-2); border-radius: 6px; padding: 3px 7px; }
+.preview b { color: var(--accent); }
+.photo { display: flex; gap: 12px; align-items: center; }
+.photo-img { width: 112px; height: 112px; flex: none; border-radius: 14px; object-fit: cover; background: var(--surface-2); }
+.photo-img.empty { display: grid; place-items: center; color: var(--ink-2); font-size: 13px; border: 1.5px dashed var(--line); background: none; }
+.photo-btns { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+.photo-btns .btn { min-height: 40px; }
+.webpanel { margin-top: 10px; }
+.photo-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+.photo-grid button { padding: 0; border: 3px solid transparent; border-radius: 12px; overflow: hidden; aspect-ratio: 1; background: var(--surface-2); }
+.photo-grid button[aria-pressed="true"] { border-color: var(--accent); }
+.photo-grid img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.stepper { display: flex; align-items: center; justify-content: center; gap: 20px; margin: 12px 0 20px; }
+.stepper button { width: 56px; height: 56px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); font-size: 26px; }
+.stepper output { font: 800 48px/1 var(--display); min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
+.aislegrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.aislegrid .btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.row2 { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.row2 .btn { flex: 1; }
+.or { text-align: center; color: var(--ink-2); font-size: 13px; margin: 18px 0 10px; }
+.status { min-height: 20px; font-size: 14px; color: var(--ink-2); margin-top: 8px; }
+
+#toast {
+  position: fixed; left: 50%; transform: translateX(-50%); z-index: 50;
+  bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 16px);
+  background: var(--ink); color: var(--paper); padding: 12px 16px; border-radius: 12px; font-size: 15px; font-weight: 600;
+  max-width: calc(100% - 32px); box-shadow: 0 8px 24px rgba(0,0,0,.2); transition: opacity .2s;
+}
+#toast.hide { opacity: 0; pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">Weekly <span>Shop</span></div>
+  <div class="weeksw" role="group" aria-label="Week">
+    <button type="button" id="prevWeek" aria-label="Previous week">‹</button>
+    <button type="button" id="weekLabel" class="label" title="Jump to this week"></button>
+    <button type="button" id="nextWeek" aria-label="Next week">›</button>
+  </div>
+  <button type="button" class="iconbtn" id="logout" aria-label="Log out" title="Log out">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+  </button>
+</header>
+
+<main>
+  <section id="view-week" aria-labelledby="tab-week"></section>
+  <section id="view-meals" aria-labelledby="tab-meals" hidden></section>
+  <section id="view-list" aria-labelledby="tab-list" hidden></section>
+</main>
+
+<nav class="tabs" role="tablist" aria-label="Sections">
+  <button type="button" role="tab" id="tab-week" data-tab="week" aria-selected="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16" rx="3"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4"/></svg>Week
+  </button>
+  <button type="button" role="tab" id="tab-meals" data-tab="meals" aria-selected="false">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 13h16a8 8 0 0 1-16 0z"/><path d="M9 9c0-2 2-2 2-4M14 9c0-2 2-2 2-4"/></svg>Meals
+  </button>
+  <button type="button" role="tab" id="tab-list" data-tab="list" aria-selected="false">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg>List
+  </button>
+</nav>
+
+<dialog class="sheet" id="sheet"><div class="sheet-in" id="sheetBody"></div></dialog>
+<div id="toast" class="hide" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+// ---------------------------------------------------------------- helpers
+const $ = (s, el = document) => el.querySelector(s);
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "class") el.className = v;
+    else if (k === "text") el.textContent = v;
+    else if (k in el && !k.includes("-") && k !== "list") el[k] = v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat(Infinity)) {
+    if (kid == null || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+const fill = (el, ...kids) => el.replaceChildren(...kids.flat(Infinity).filter(k => k != null && k !== false));
+const svgCheck = () => { const s = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  s.setAttribute("viewBox", "0 0 24 24"); s.setAttribute("aria-hidden", "true");
+  s.innerHTML = '<path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>';
+  return s; };
+const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+const store = { get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+                set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} } };
+
+let toastTimer;
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.classList.remove("hide");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.add("hide"), 3200);
+}
+
+async function api(path, { method = "GET", body } = {}) {
+  let r;
+  try {
+    r = await fetch(path, { method, credentials: "same-origin",
+      headers: body ? { "Content-Type": "application/json" } : {},
+      body: body ? JSON.stringify(body) : undefined });
+  } catch (e) { const err = new Error("You're offline."); err.offline = true; throw err; }
+  if (r.status === 401) { location.href = "/login"; throw new Error("Please log in."); }
+  if (!r.ok) {
+    let msg = `Something went wrong (${r.status}).`;
+    try { const j = await r.json(); if (j.detail) msg = typeof j.detail === "string" ? j.detail : "Please check the form."; } catch {}
+    throw new Error(msg);
+  }
+  return r.status === 204 ? null : r.json();
+}
+
+// ---------------------------------------------------------------- dates
+const pad = n => String(n).padStart(2, "0");
+const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const parseIso = s => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+const addDays = (s, n) => { const d = parseIso(s); d.setDate(d.getDate() + n); return iso(d); };
+const mondayOf = d => { const x = new Date(d); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return iso(x); };
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const monthFmt = { format: d => MONTHS[d.getMonth()] };
+function weekLabel(ws) {
+  const a = parseIso(ws), b = parseIso(addDays(ws, 6));
+  return a.getMonth() === b.getMonth()
+    ? `${a.getDate()}–${b.getDate()} ${monthFmt.format(b)}`
+    : `${a.getDate()} ${monthFmt.format(a)} – ${b.getDate()} ${monthFmt.format(b)}`;
+}
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const SLOTS = ["breakfast", "lunch", "dinner"];
+const KINDS = ["breakfast", "lunch", "dinner", "any"];
+
+// ---------------------------------------------------------------- ingredient parsing (mirrors app/parsing.py)
+const FR = { "½": .5, "¼": .25, "¾": .75, "⅓": 1 / 3, "⅔": 2 / 3, "⅛": .125 };
+const FRC = Object.keys(FR).join("");
+const NUM = `\\d+\\s*[${FRC}]|\\d+\\s+\\d+/\\d+|\\d+/\\d+|\\d+(?:[.,]\\d+)?|[${FRC}]`;
+const QTY_RE = new RegExp(`^\\s*(${NUM})(?:\\s*(?:-|–|—|to)\\s*(${NUM}))?\\s*`, "i");
+const UNITS = {};
+[["g", 1, "g gr gram grams gramme grammes"], ["g", 1000, "kg kgs kilo kilos kilogram kilograms"],
+ ["ml", 1, "ml millilitre millilitres milliliter milliliters"], ["ml", 10, "cl"], ["ml", 100, "dl"],
+ ["ml", 1000, "l ltr litre litres liter liters"], ["tsp", 1, "tsp tsps teaspoon teaspoons"],
+ ["tbsp", 1, "tbsp tbsps tbs tablespoon tablespoons"], ["pinch", 1, "pinch pinches"], ["clove", 1, "clove cloves"],
+ ["tin", 1, "tin tins can cans"], ["pack", 1, "pack packs packet packets"], ["bunch", 1, "bunch bunches"],
+ ["slice", 1, "slice slices"], ["sprig", 1, "sprig sprigs"], ["handful", 1, "handful handfuls"],
+ ["jar", 1, "jar jars"], ["bag", 1, "bag bags"]]
+  .forEach(([c, m, al]) => al.split(" ").forEach(a => UNITS[a] = [c, m]));
+const UNIT_RE = new RegExp(`^(${Object.keys(UNITS).sort((a, b) => b.length - a.length).join("|")})\\.?(?![a-z])\\s*(?:of\\s+)?`, "i");
+function num(t) {
+  t = t.trim(); const last = t.slice(-1);
+  if (FR[last] != null) { const w = t.slice(0, -1).trim(); return (w ? parseFloat(w) : 0) + FR[last]; }
+  if (t.includes("/")) { const p = t.split(/\s+/); const [n, d] = p[p.length - 1].split("/").map(Number); return (p.length === 2 ? +p[0] : 0) + (d ? n / d : 0); }
+  return parseFloat(t.replace(",", "."));
+}
+function parseLine(line) {
+  let rest = line.trim(), qty = null, unit = "";
+  const m = rest.match(QTY_RE);
+  if (m) {
+    qty = num(m[2] || m[1]); rest = rest.slice(m[0].length);
+    const u = rest.match(UNIT_RE);
+    if (u) { const [c, mult] = UNITS[u[1].toLowerCase()]; unit = c; qty *= mult; rest = rest.slice(u[0].length); }
+  }
+  let name = rest.trim(), note = "";
+  const i = name.indexOf(",");
+  if (i >= 0) { note = name.slice(i + 1).trim(); name = name.slice(0, i).trim(); }
+  return { name, qty, unit, note };
+}
+const fmtNum = (x, dp = 2) => String(+x.toFixed(dp));
+function ingToLine(i) {
+  const q = i.qty == null ? "" : fmtNum(i.qty) + (i.unit ? " " + i.unit : "") + " ";
+  return (q + i.name + (i.note ? ", " + i.note : "")).trim();
+}
+
+// ---------------------------------------------------------------- state
+const today = iso(new Date());
+const S = {
+  tab: store.get("tab", "week"),
+  week: mondayOf(new Date()),
+  config: { cookidoo: false, aisles: [] },
+  meals: [], weekData: null, list: null, pantry: [],
+  mealFilter: store.get("mealFilter", "all"),
+};
+
+// ---------------------------------------------------------------- sheet
+const sheet = $("#sheet");
+function openSheet(title, ...content) {
+  const body = $("#sheetBody");
+  fill(body, 
+    h("div", { class: "sheet-head" },
+      h("h2", { id: "sheetTitle", text: title }),
+      h("button", { type: "button", class: "iconbtn", "aria-label": "Close", onclick: closeSheet, text: "✕" })),
+    ...content);
+  sheet.setAttribute("aria-labelledby", "sheetTitle");
+  if (!sheet.open) sheet.showModal();
+  body.scrollTop = 0;
+}
+function closeSheet() { if (sheet.open) sheet.close(); }
+sheet.addEventListener("click", e => { if (e.target === sheet) closeSheet(); });
+
+// ---------------------------------------------------------------- tabs & week switcher
+function setTab(tab) {
+  S.tab = tab; store.set("tab", tab);
+  for (const b of document.querySelectorAll("nav.tabs button")) b.setAttribute("aria-selected", String(b.dataset.tab === tab));
+  for (const t of ["week", "meals", "list"]) $(`#view-${t}`).hidden = t !== tab;
+  render();
+}
+document.querySelectorAll("nav.tabs button").forEach(b => b.addEventListener("click", () => {
+  setTab(b.dataset.tab);
+  if (b.dataset.tab === "list") refresh();   // pick up pantry changes
+  if (b.dataset.tab === "meals") loadMeals().then(render).catch(() => {});   // pick up background photos
+}));
+// Coming back to the app (e.g. from Pantry Tracker) reloads the list, at most every 5 s.
+let lastRefresh = 0;
+const refreshIfStale = () => {
+  if (document.visibilityState !== "visible" || sheet.open || Date.now() - lastRefresh < 5000) return;
+  loadMeals().catch(() => {}).then(refresh);
+};
+document.addEventListener("visibilitychange", refreshIfStale);
+window.addEventListener("focus", refreshIfStale);
+function setWeek(ws) { S.week = ws; $("#weekLabel").textContent = weekLabel(ws); refresh(); }
+$("#prevWeek").onclick = () => setWeek(addDays(S.week, -7));
+$("#nextWeek").onclick = () => setWeek(addDays(S.week, 7));
+$("#weekLabel").onclick = () => setWeek(mondayOf(new Date()));
+$("#logout").onclick = async () => {
+  try { await fetch("/logout", { method: "POST", credentials: "same-origin" }); } catch {}
+  try { localStorage.clear(); if (window.caches) for (const k of await caches.keys()) await caches.delete(k); } catch {}
+  location.href = "/login";
+};
+
+async function refresh() {
+  lastRefresh = Date.now();
+  try {
+    const [week, list] = await Promise.all([api(`/api/week?start=${S.week}`), api(`/api/list?week=${S.week}`)]);
+    S.weekData = week; S.list = list; S.list.offline = false;
+    store.set(`list:${S.week}`, list);
+  } catch (e) {
+    const cached = store.get(`list:${S.week}`, null);
+    if (e.offline && cached) { S.list = { ...cached, offline: true }; }
+    else toast(e.message);
+  }
+  render();
+}
+async function loadMeals() { S.meals = await api("/api/meals"); }
+async function loadPantry() { S.pantry = await api("/api/pantry"); }
+
+function render() {
+  if (S.tab === "week") renderWeek();
+  else if (S.tab === "meals") renderMeals();
+  else renderList();
+}
+
+// Two-tap confirmation on the button itself (native confirm() is blocked in some browsers).
+function confirmTap(btn, prompt, fn) {
+  const reset = () => {
+    delete btn.dataset.armed; btn.textContent = btn.dataset.label; btn.classList.remove("armed");
+    btn.parentElement.classList.remove("armed");
+    if (btn.dataset.aria) btn.setAttribute("aria-label", btn.dataset.aria);
+  };
+  if (btn.dataset.armed) {
+    clearTimeout(+btn.dataset.armed); reset();
+    return run(btn, fn);
+  }
+  btn.dataset.label = btn.textContent;
+  btn.textContent = prompt; btn.classList.add("armed");
+  btn.parentElement.classList.add("armed");
+  const aria = btn.getAttribute("aria-label");
+  if (aria) { btn.dataset.aria = aria; btn.setAttribute("aria-label", `${aria}? Tap again to confirm`); }
+  btn.dataset.armed = setTimeout(reset, 4000);
+}
+
+async function run(btn, fn) {
+  if (btn) btn.disabled = true;
+  try { await fn(); } catch (e) { toast(e.message); } finally { if (btn) btn.disabled = false; }
+}
+
+// ---------------------------------------------------------------- WEEK
+function mealThumb(m) {
+  const src = m.photo_url || m.image;
+  return src ? h("img", { class: "thumb", src, alt: "", loading: "lazy", referrerpolicy: "no-referrer" })
+                 : h("span", { class: "thumb", "aria-hidden": "true", text: (m.name || "?").charAt(0).toUpperCase() });
+}
+
+function renderWeek() {
+  const v = $("#view-week");
+  const wd = S.weekData;
+  if (!wd) { fill(v, h("p", { class: "empty", text: "Loading…" })); return; }
+  const actions = h("div", { class: "actions" },
+    h("button", { type: "button", class: "btn", onclick: e => run(e.currentTarget, async () => {
+      const r = await api("/api/week/copy-last", { method: "POST", body: { week_start: S.week } });
+      toast(r.copied ? `Copied ${r.copied} meal${r.copied === 1 ? "" : "s"} from last week` : "Nothing new to copy from last week");
+      await refresh();
+    }) }, "Copy last week"),
+    S.config.cookidoo && h("button", { type: "button", class: "btn", onclick: e => run(e.currentTarget, async () => {
+      toast("Fetching My Week from Cookidoo…");
+      const r = await api("/api/cookidoo/pull-week", { method: "POST", body: { week_start: S.week } });
+      toast(r.added ? `Added ${r.added} dinner${r.added === 1 ? "" : "s"}${r.imported ? ` · ${r.imported} new recipe${r.imported === 1 ? "" : "s"} imported` : ""}`
+                    : (r.skipped ? "Already up to date" : "Nothing planned in Cookidoo this week"));
+      await Promise.all([refresh(), loadMeals()]);
+    }) }, "Pull Cookidoo My Week"));
+  const days = wd.days.map((d, i) => {
+    const date = parseIso(d);
+    const isToday = d === today;
+    return h("section", { class: "day" + (isToday ? " today" : ""), "aria-label": `${DAYS[i]} ${date.getDate()} ${monthFmt.format(date)}` },
+      h("div", { class: "dayhead" },
+        h("h2", { text: DAYS[i] }),
+        h("span", { class: "date", text: `${date.getDate()} ${monthFmt.format(date)}` }),
+        isToday && h("span", { class: "badge", text: "Today" })),
+      SLOTS.map(slot => h("div", { class: "slot" },
+        h("span", { class: "slotname", text: slot }),
+        h("div", { class: "chips" }, wd.entries.filter(e => e.day === i && e.slot === slot).map(e =>
+          h("span", { class: "chip" },
+            h("span", { class: "nm", text: e.name, title: e.name }),
+            h("button", { type: "button", class: "serv", "aria-label": `${e.name}: ${e.servings} servings, change`,
+                          onclick: () => servingsSheet(e) }, `×${e.servings}`),
+            h("button", { type: "button", "aria-label": `Remove ${e.name} from ${DAYS[i]} ${slot}`,
+                          onclick: ev => run(ev.currentTarget, async () => { await api(`/api/plan/${e.id}`, { method: "DELETE" }); await refresh(); }) }, "✕")))),
+        h("button", { type: "button", class: "addbtn", "aria-label": `Add ${slot} on ${DAYS[i]}`, onclick: () => pickerSheet(i, slot) }, "+"))));
+  });
+  fill(v, actions, ...days);
+}
+
+function pickerSheet(day, slot) {
+  const search = h("input", { type: "search", placeholder: "Search meals", "aria-label": "Search meals", autocomplete: "off" });
+  const results = h("div");
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    const ms = S.meals.filter(m => !q || m.name.toLowerCase().includes(q));
+    const fit = ms.filter(m => m.kind === slot || m.kind === "any");
+    const rest = ms.filter(m => !(m.kind === slot || m.kind === "any"));
+    const item = m => h("button", { type: "button", class: "pick", onclick: e => run(e.currentTarget, async () => {
+        await api("/api/plan", { method: "POST", body: { week_start: S.week, day, slot, meal_id: m.id } });
+        closeSheet(); toast(`Added ${m.name}`); await refresh();
+      }) }, mealThumb(m), h("span", {}, h("span", { class: "t", text: m.name }), h("br"), h("span", { class: "meta", text: `${cap(m.kind)} · serves ${m.servings}` })));
+    fill(results, 
+      !S.meals.length && h("p", { class: "empty", text: "No meals yet. Add some in the Meals tab." }),
+      fit.length ? [h("div", { class: "grouplabel", text: `For ${slot}` }), fit.map(item)] : null,
+      rest.length ? [h("div", { class: "grouplabel", text: fit.length ? "Everything else" : "All meals" }), rest.map(item)] : null,
+      S.meals.length > 0 && !ms.length && h("p", { class: "empty", text: "No matches." }),
+      h("div", { class: "row2" }, h("button", { type: "button", class: "btn", onclick: () => { closeSheet(); setTab("meals"); mealSheet(null, slot); } }, "New meal…")));
+  };
+  search.addEventListener("input", draw);
+  draw();
+  openSheet(`Add ${slot} · ${DAYS[day]}`, search, results);
+  if (S.meals.length > 6) search.focus();
+}
+
+function servingsSheet(e) {
+  let n = e.servings;
+  const out = h("output", { "aria-live": "polite", text: n });
+  const set = x => { n = Math.max(1, Math.min(50, x)); out.textContent = n; };
+  const save = async servings => {
+    await api(`/api/plan/${e.id}`, { method: "PATCH", body: { servings } }); closeSheet(); await refresh();
+  };
+  openSheet(e.name,
+    h("p", { class: "sub", text: `Servings for ${DAYS[e.day]} ${e.slot}. The recipe makes ${e.meal_servings}.` }),
+    h("div", { class: "stepper" },
+      h("button", { type: "button", "aria-label": "Fewer servings", onclick: () => set(n - 1) }, "−"), out,
+      h("button", { type: "button", "aria-label": "More servings", onclick: () => set(n + 1) }, "+")),
+    h("div", { class: "row2" },
+      h("button", { type: "button", class: "btn", onclick: ev => run(ev.currentTarget, () => save(null)) }, `Reset to ${e.meal_servings}`),
+      h("button", { type: "button", class: "btn primary", onclick: ev => run(ev.currentTarget, () => save(n === e.meal_servings ? null : n)) }, "Save")));
+}
+
+// ---------------------------------------------------------------- MEALS
+function renderMeals() {
+  const v = $("#view-meals");
+  const filters = h("div", { class: "filters", role: "group", "aria-label": "Filter meals" },
+    ["all", ...KINDS].map(k => h("button", { type: "button", "aria-pressed": String(S.mealFilter === k),
+      onclick: () => { S.mealFilter = k; store.set("mealFilter", k); renderMeals(); } }, cap(k))));
+  const shown = S.meals.filter(m => S.mealFilter === "all" || m.kind === S.mealFilter);
+  fill(v, 
+    h("div", { class: "actions" },
+      h("button", { type: "button", class: "btn primary", onclick: () => mealSheet(null) }, "+ New meal"),
+      S.config.cookidoo && h("button", { type: "button", class: "btn", onclick: importSheet }, "Import from Cookidoo")),
+    filters,
+    shown.length ? shown.map(m => h("button", { type: "button", class: "mealcard", onclick: () => mealSheet(m) },
+      mealThumb(m),
+      h("span", {},
+        h("span", { class: "t", text: m.name }), h("br"),
+        h("span", { class: "meta", text: `${cap(m.kind)} · serves ${m.servings} · ${m.ingredients.length} ingredient${m.ingredients.length === 1 ? "" : "s"}` }),
+        m.source !== "manual" && [h("br"), h("span", { class: "src", text: "Cookidoo" })])))
+    : h("div", { class: "empty" }, h("h2", { text: S.meals.length ? "Nothing here" : "No meals yet" }),
+        h("p", { text: S.meals.length ? "No meals of this kind." : "Add the meals you cook regularly, or import them from Cookidoo." })));
+}
+
+function kindSeg(name, value) {
+  return h("div", { class: "seg", role: "radiogroup", "aria-label": "Meal kind" },
+    KINDS.map(k => h("label", {}, h("input", { type: "radio", name, value: k, checked: k === value }), h("span", { text: cap(k) }))));
+}
+
+// Shrink a picked/taken photo to a JPEG (max 1200 px) before upload. Also bakes in camera rotation.
+async function shrinkPhoto(file, max = 1200) {
+  let src;
+  try {
+    src = window.createImageBitmap ? await createImageBitmap(file, { imageOrientation: "from-image" }) : null;
+  } catch { src = null; }
+  if (!src) {
+    const url = URL.createObjectURL(file);
+    try { src = new Image(); src.src = url; await src.decode(); }
+    catch { throw new Error("Couldn't read that image. Try a JPEG or PNG."); }
+    finally { setTimeout(() => URL.revokeObjectURL(url), 0); }
+  }
+  const w = src.width, hgt = src.height, scale = Math.min(1, max / Math.max(w, hgt));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(w * scale); canvas.height = Math.round(hgt * scale);
+  canvas.getContext("2d").drawImage(src, 0, 0, canvas.width, canvas.height);
+  if (src.close) src.close();
+  return new Promise((res, rej) => canvas.toBlob(b => b ? res(b) : rej(new Error("Couldn't process that image.")), "image/jpeg", 0.82));
+}
+
+async function uploadPhoto(mealId, blob) {
+  const r = await fetch(`/api/meals/${mealId}/photo`, { method: "PUT", credentials: "same-origin",
+    headers: { "Content-Type": "image/jpeg" }, body: blob });
+  if (r.status === 401) { location.href = "/login"; throw new Error("Please log in."); }
+  if (!r.ok) { let m = `Upload failed (${r.status}).`; try { m = (await r.json()).detail || m; } catch {} throw new Error(m); }
+}
+
+function mealSheet(meal, defaultKind) {
+  const isNew = !meal;
+  meal = meal || { name: "", kind: defaultKind || "dinner", servings: 4, ingredients: [] };
+  const name = h("input", { type: "text", required: true, maxLength: 120, value: meal.name, autocomplete: "off", id: "f-name" });
+  const serves = h("input", { type: "number", min: 1, max: 50, value: meal.servings, inputMode: "numeric", id: "f-serves" });
+  const ta = h("textarea", { id: "f-ings", placeholder: "500 g chicken thighs\n2 red onions\n200g flour\nwraps",
+    value: meal.ingredients.map(ingToLine).join("\n") });
+  ta.spellcheck = false;
+  const preview = h("div", { class: "preview", "aria-hidden": "true" });
+  const drawPreview = () => fill(preview, ...ta.value.split("\n").map(l => l.trim()).filter(Boolean).slice(0, 60).map(l => {
+    const p = parseLine(l); return h("span", {}, p.qty != null ? h("b", { text: fmtNum(p.qty) + (p.unit ? " " + p.unit : "") + " " }) : null, p.name);
+  }));
+  ta.addEventListener("input", drawPreview); drawPreview();
+
+  // Photo: take one or pick from the library; uploaded after the meal is saved.
+  let pendingPhoto = null, pendingPexels = null, removePhoto = false;
+  const photoImg = h("img", { class: "photo-img", alt: "" });
+  const photoEmpty = h("span", { class: "photo-img empty", "aria-hidden": "true", text: "No photo" });
+  const removeBtn = h("button", { type: "button", class: "btn ghost", onclick: () => {
+    pendingPhoto = null; pendingPexels = null; removePhoto = !!meal.photo_url;
+    showPhoto(removePhoto ? meal.image : (meal.photo_url || meal.image));
+    removeBtn.hidden = true; credit.hidden = true;
+  } }, "Remove photo");
+  const showPhoto = src => { photoImg.hidden = !src; photoEmpty.hidden = !!src; if (src) photoImg.src = src; };
+  showPhoto(meal.photo_url || meal.image);
+  removeBtn.hidden = !meal.photo_url;
+  const onPick = async e => {
+    const file = e.target.files && e.target.files[0]; e.target.value = "";
+    if (!file) return;
+    try {
+      pendingPhoto = await shrinkPhoto(file); pendingPexels = null; removePhoto = false;
+      showPhoto(URL.createObjectURL(pendingPhoto)); removeBtn.hidden = false; credit.hidden = true; webPanel.hidden = true;
+    } catch (err) { toast(err.message); }
+  };
+  const camIn = h("input", { type: "file", accept: "image/*", class: "sr-only", tabIndex: -1, "aria-hidden": "true", onchange: onPick });
+  camIn.setAttribute("capture", "environment");
+  const libIn = h("input", { type: "file", accept: "image/*", class: "sr-only", tabIndex: -1, "aria-hidden": "true", onchange: onPick });
+  const credit = h("p", { class: "hint", text: meal.photo_credit ? `Photo: ${meal.photo_credit}` : "" });
+  credit.hidden = !meal.photo_credit;
+
+  // Online search (Pexels), shown inline so the rest of the form isn't lost.
+  const webQ = h("input", { type: "search", placeholder: "Search photos", "aria-label": "Search online photos", autocomplete: "off" });
+  const webStatus = h("p", { class: "status", "aria-live": "polite" });
+  const webGrid = h("div", { class: "photo-grid" });
+  const webSearch = async () => {
+    const term = webQ.value.trim();
+    if (term.length < 2) return;
+    webStatus.textContent = "Searching…"; fill(webGrid);
+    try {
+      const hits = await api(`/api/photo-search?q=${encodeURIComponent(term)}`);
+      webStatus.textContent = hits.length ? "" : "No photos found. Try a simpler name.";
+      fill(webGrid, hits.map(hit => h("button", { type: "button", "aria-label": hit.alt || `Photo by ${hit.photographer}`,
+        "aria-pressed": "false", onclick: e => {
+          pendingPexels = hit.id; pendingPhoto = null; removePhoto = false;
+          showPhoto(hit.thumb); removeBtn.hidden = false;
+          credit.textContent = `Photo: ${hit.photographer} / Pexels`; credit.hidden = false;
+          webGrid.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b === e.currentTarget)));
+          webPanel.hidden = true;   // done choosing; "Search online" reopens it
+          photoImg.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+        } }, h("img", { src: hit.thumb, alt: "", loading: "lazy", referrerpolicy: "no-referrer" }))));
+    } catch (err) { webStatus.textContent = err.message; }
+  };
+  let webTimer;
+  webQ.addEventListener("input", () => { clearTimeout(webTimer); webTimer = setTimeout(webSearch, 400); });
+  webQ.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); clearTimeout(webTimer); webSearch(); } });
+  const webPanel = h("div", { class: "webpanel" }, webQ, webStatus, webGrid,
+    h("p", { class: "hint" }, "Photos from ", h("a", { href: "https://www.pexels.com", target: "_blank", rel: "noopener noreferrer" }, "Pexels"), "."));
+  webPanel.hidden = true;
+
+  const photoField = h("div", { class: "field" }, h("span", { class: "lab", text: "Photo" }),
+    h("div", { class: "photo" }, photoImg, photoEmpty,
+      h("div", { class: "photo-btns" },
+        h("button", { type: "button", class: "btn", onclick: () => camIn.click() }, "Take photo"),
+        h("button", { type: "button", class: "btn", onclick: () => libIn.click() }, "Choose from library"),
+        S.config.photos && h("button", { type: "button", class: "btn", onclick: () => {
+          webPanel.hidden = !webPanel.hidden;
+          if (!webPanel.hidden) {
+            if (!webQ.value) webQ.value = name.value.trim();
+            if (!webGrid.children.length) webSearch();   // keep earlier results when reopening
+            webQ.focus();
+          }
+        } }, "Search online"),
+        removeBtn),
+      camIn, libIn),
+    credit, webPanel);
+
+  const form = h("form", { onsubmit: async e => {
+    e.preventDefault();
+    const body = { name: name.value.trim(), kind: form.querySelector("input[name=kind]:checked").value,
+      servings: Math.max(1, Math.min(50, parseInt(serves.value, 10) || 4)),
+      ingredients: ta.value.split("\n").map(l => l.trim()).filter(Boolean).map(parseLine).filter(i => i.name) };
+    await run(form.querySelector("button[type=submit]"), async () => {
+      const choosing = pendingPhoto || pendingPexels;
+      const saved = await api(isNew ? `/api/meals${choosing ? "?auto_photo=false" : ""}` : `/api/meals/${meal.id}`,
+                              { method: isNew ? "POST" : "PUT", body });
+      let msg = isNew ? `Added ${body.name}` : "Saved";
+      try {
+        if (pendingPhoto) await uploadPhoto(saved.id, pendingPhoto);
+        else if (pendingPexels) await api(`/api/meals/${saved.id}/photo/pexels`, { method: "POST", body: { photo_id: pendingPexels } });
+        else if (removePhoto) await api(`/api/meals/${saved.id}/photo`, { method: "DELETE" });
+      } catch (err) { msg = `Meal saved, but the photo didn't save: ${err.message}`; }
+      closeSheet(); toast(msg); await loadMeals(); await refresh();
+      // New meals without a photo get one from Pexels in the background; show it when it lands.
+      if (isNew && !choosing && S.config.photos) setTimeout(async () => { try { await loadMeals(); render(); } catch {} }, 4000);
+    });
+  } },
+    h("label", { class: "field", for: "f-name" }, h("span", { class: "lab", text: "Name" }), name),
+    photoField,
+    h("div", { class: "field" }, h("span", { class: "lab", text: "Kind" }), kindSeg("kind", meal.kind)),
+    h("label", { class: "field", for: "f-serves" }, h("span", { class: "lab", text: "Serves" }), serves),
+    h("label", { class: "field", for: "f-ings" }, h("span", { class: "lab", text: "Ingredients, one per line" }), ta,
+      h("div", { class: "hint", text: "Quantity and unit first, e.g. “500 g chicken thighs”. Add notes after a comma." }), preview),
+    meal.url && h("p", {}, h("a", { href: meal.url, target: "_blank", rel: "noopener noreferrer" }, "Open in Cookidoo ↗")),
+    h("div", { class: "row2" },
+      !isNew && h("button", { type: "button", class: "btn danger", onclick: ev => confirmTap(ev.currentTarget, "Tap again to delete", async () => {
+        await api(`/api/meals/${meal.id}`, { method: "DELETE" }); closeSheet(); toast(`Deleted ${meal.name}`); await loadMeals(); await refresh();
+      }) }, "Delete"),
+      h("button", { type: "submit", class: "btn primary" }, isNew ? "Add meal" : "Save")));
+  openSheet(isNew ? "New meal" : "Edit meal", form);
+  if (isNew) name.focus();
+}
+
+function importSheet() {
+  const status = h("p", { class: "status", "aria-live": "polite" });
+  const ref = h("input", { type: "text", id: "imp-ref", placeholder: "https://cookidoo.co.uk/recipes/recipe/en-GB/r59322", autocomplete: "off", inputMode: "url" });
+  const kindWrap = kindSeg("impkind", "dinner");
+  const kind = () => kindWrap.querySelector("input:checked").value;
+  const doImport = async (r, btn) => run(btn, async () => {
+    status.textContent = "Importing…";
+    try {
+      const res = await api("/api/cookidoo/import", { method: "POST", body: { ref: r, kind: kind() } });
+      await loadMeals(); render();
+      status.textContent = "";
+      toast(res.created ? `Imported ${res.meal.name}` : `${res.meal.name} is already in your meals`);
+      closeSheet();
+    } catch (e) { status.textContent = e.message; throw e; }
+  });
+  const results = h("div");
+  const q = h("input", { type: "search", id: "imp-q", placeholder: "Search Cookidoo", autocomplete: "off" });
+  let timer, seq = 0;
+  q.addEventListener("input", () => {
+    clearTimeout(timer);
+    const term = q.value.trim();
+    if (term.length < 2) { fill(results, ); return; }
+    timer = setTimeout(async () => {
+      const my = ++seq; status.textContent = "Searching…";
+      try {
+        const hits = await api(`/api/cookidoo/search?q=${encodeURIComponent(term)}`);
+        if (my !== seq) return;
+        status.textContent = hits.length ? "" : "No recipes found.";
+        fill(results, ...hits.map(r => h("button", { type: "button", class: "pick", onclick: e => doImport(r.id, e.currentTarget) },
+          mealThumb({ name: r.name, image: r.thumbnail }), h("span", { class: "t", text: r.name }))));
+      } catch (e) { if (my === seq) status.textContent = e.message; }
+    }, 350);
+  });
+  openSheet("Import from Cookidoo",
+    h("form", { onsubmit: e => { e.preventDefault(); if (ref.value.trim()) doImport(ref.value.trim(), e.target.querySelector("button")); } },
+      h("label", { class: "field", for: "imp-ref" }, h("span", { class: "lab", text: "Recipe link or ID" }), ref),
+      h("div", { class: "field" }, h("span", { class: "lab", text: "Save as" }), kindWrap),
+      h("button", { type: "submit", class: "btn primary" }, "Import")),
+    h("p", { class: "or", text: "or search" }),
+    h("label", { for: "imp-q", class: "sr-only", text: "Search Cookidoo" }), q, status, results);
+}
+
+// ---------------------------------------------------------------- LIST
+function listText() {
+  const lines = [`Shopping · ${weekLabel(S.week)}`];
+  for (const a of S.list.aisles) {
+    const todo = a.items.filter(i => !i.checked);
+    if (!todo.length) continue;
+    lines.push("", a.name.toUpperCase(), ...todo.map(i => `• ${cap(i.name)}${i.qty ? ` — ${i.qty}` : ""}`));
+  }
+  return lines.join("\n");
+}
+
+function renderList() {
+  const v = $("#view-list");
+  const L = S.list;
+  if (!L) { fill(v, h("p", { class: "empty", text: "Loading…" })); return; }
+  const itemRow = it => {
+    const li = h("li", { class: it.checked ? "done" : "" });
+    const tick = h("button", { type: "button", class: "tick", "data-key": it.key, "aria-pressed": String(it.checked),
+      "aria-label": `${it.checked ? "Untick" : "Tick"} ${it.name}` }, h("span", {}, svgCheck()));
+    tick.onclick = async () => {
+      if (L.offline) { toast("Offline — can't save ticks right now"); return; }
+      const flip = () => { it.checked = !it.checked; L.left += it.checked ? -1 : 1; rerenderListKeepingFocus(it.key); };
+      flip();   // optimistic
+      try { await api("/api/list/check", { method: "POST", body: { week_start: S.week, key: it.key, checked: it.checked } }); store.set(`list:${S.week}`, L); }
+      catch (e) { flip(); toast(e.message); }
+    };
+    li.append(tick, h("button", { type: "button", class: "itemmain", onclick: () => itemSheet(it) },
+      h("span", { class: "row" }, h("span", { class: "nm", text: cap(it.name) }), it.qty && h("span", { class: "q", text: it.qty })),
+      it.meals.length ? h("span", { class: "for", text: "for " + it.meals.join(", ") }) : null));
+    return li;
+  };
+  // Unticked items stay under their aisle; ticked ones drop into "In the basket" (kept in aisle order).
+  const todo = L.aisles.map(a => ({ name: a.name, items: a.items.filter(i => !i.checked) })).filter(a => a.items.length);
+  const done = L.aisles.flatMap(a => a.items.filter(i => i.checked));
+  const extraName = h("input", { type: "text", placeholder: "Add an extra (e.g. bin bags)", "aria-label": "Extra item", maxLength: 120, required: true });
+  const extraQty = h("input", { type: "text", placeholder: "Qty", "aria-label": "Quantity", maxLength: 40 });
+  const pantryIn = h("input", { type: "text", placeholder: "Add something you always have", "aria-label": "Add pantry item", maxLength: 120 });
+  fill(v, 
+    L.offline && h("p", { class: "offline", text: "Offline: showing the last saved copy of this list. Ticks won't save until you're back online." }),
+    h("div", { class: "count" }, h("span", { class: "n", text: L.left }), h("span", { class: "l", text: L.left === 1 ? "item left" : "items left" })),
+    h("p", { class: "sub", text: L.total ? `${L.total - L.left} of ${L.total} ticked · ${weekLabel(S.week)}` : weekLabel(S.week) }),
+    h("div", { class: "actions" },
+      h("button", { type: "button", class: "btn primary", disabled: !L.left, onclick: async () => {
+        const text = listText();
+        try {
+          if (navigator.share) { await navigator.share({ title: "Shopping list", text }); return; }
+        } catch (e) { if (e.name === "AbortError") return; }
+        try { await navigator.clipboard.writeText(text); toast("List copied to clipboard"); } catch { toast("Couldn't share or copy the list"); }
+      } }, "Share list"),
+      S.config.cookidoo && h("button", { type: "button", class: "btn", disabled: L.offline, onclick: e => confirmTap(e.currentTarget, "Tap again to send", async () => {
+        const r = await api("/api/cookidoo/send-list", { method: "POST", body: { week_start: S.week } });
+        toast(`Sent ${r.recipes} recipe${r.recipes === 1 ? "" : "s"} and ${r.items} item${r.items === 1 ? "" : "s"} to Cookidoo`);
+      }) }, "Send to Cookidoo list"),
+      L.total - L.left > 0 && h("button", { type: "button", class: "btn ghost", disabled: L.offline, onclick: e => run(e.currentTarget, async () => {
+        await api("/api/list/untick-all", { method: "POST", body: { week_start: S.week } }); await refresh();
+      }) }, "Untick all")),
+    !L.total && h("div", { class: "empty" }, h("h2", { text: "Nothing to buy yet" }),
+      h("p", { text: "Plan some meals for this week and the list builds itself." }),
+      h("button", { type: "button", class: "btn", onclick: () => setTab("week") }, "Plan the week")),
+    todo.map(a => [
+      h("h3", { class: "aisle", text: `${a.name} · ${a.items.length}` }),
+      h("ul", { class: "items" }, a.items.map(itemRow))]),
+    done.length > 0 && [
+      h("h3", { class: "aisle basket", text: `In the basket · ${done.length}` }),
+      h("ul", { class: "items" }, done.map(itemRow))],
+    h("form", { class: "extra", onsubmit: e => { e.preventDefault(); run(e.target.querySelector("button"), async () => {
+      await api("/api/extras", { method: "POST", body: { week_start: S.week, name: extraName.value.trim(), qty: extraQty.value.trim() } });
+      toast(`Added ${extraName.value.trim()}`); await refresh();
+    }); } }, extraName, extraQty, h("button", { type: "submit", class: "btn" }, "Add")),
+    h("h3", { class: "aisle", text: "Always in the cupboard" }),
+    L.pantry_ok === false && h("p", { class: "pantrynote", text: "Pantry Tracker isn't reachable right now, so nothing is being taken off the list." }),
+    (L.in_pantry || []).length > 0 && h("div", { class: "pantry", style: "margin-bottom: 8px" }, L.in_pantry.map(p =>
+      h("button", { type: "button", class: "pchip stock", onclick: () => pantryItemSheet(p),
+        "aria-label": `${p.name}: in pantry as ${p.product.name}, ${p.product.quantity} in stock` },
+        h("span", { text: cap(p.name) }), h("span", { class: "from", text: `In pantry ×${p.product.quantity}` })))),
+    h("div", { class: "pantry" }, S.pantry.map(p => h("span", { class: "pchip" }, cap(p),
+      h("button", { type: "button", "aria-label": `Put ${p} back on lists`, onclick: e => confirmTap(e.currentTarget, "Remove?", async () => {
+        await api(`/api/pantry/${encodeURIComponent(p)}`, { method: "DELETE" }); toast(`${p} will go back on lists`);
+        await Promise.all([loadPantry(), refresh()]);
+      }) }, "✕")))),
+    h("form", { class: "extra", style: "grid-template-columns: 1fr auto", onsubmit: e => { e.preventDefault(); if (!pantryIn.value.trim()) return;
+      run(e.target.querySelector("button"), async () => {
+        await api("/api/pantry", { method: "POST", body: { name: pantryIn.value.trim() } }); await Promise.all([loadPantry(), refresh()]);
+      }); } }, pantryIn, h("button", { type: "submit", class: "btn" }, "Add")));
+}
+
+function rerenderListKeepingFocus(key) {
+  const hadFocus = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.key === key;
+  const y = window.scrollY;
+  renderList();
+  window.scrollTo(0, y);
+  if (hadFocus) [...document.querySelectorAll(".tick")].find(b => b.dataset.key === key)?.focus({ preventScroll: true });
+}
+
+function itemSheet(it) {
+  const isExtra = it.extra_id != null;
+  openSheet(cap(it.name),
+    it.qty && h("p", { class: "sub", text: it.qty + (it.meals.length ? ` · for ${it.meals.join(", ")}` : "") }),
+    !isExtra && [
+      h("div", { class: "grouplabel", text: "Aisle (remembered)" }),
+      h("div", { class: "aislegrid" }, S.config.aisles.filter(a => a !== "Extras").map(a =>
+        h("button", { type: "button", class: "btn", "aria-pressed": String(a === it.aisle), onclick: e => run(e.currentTarget, async () => {
+          await api("/api/aisles", { method: "PUT", body: { name: it.name, aisle: a } }); closeSheet(); await refresh();
+        }) }, a))),
+      h("div", { class: "row2" },
+        h("button", { type: "button", class: "btn ghost", onclick: e => run(e.currentTarget, async () => {
+          await api("/api/aisles", { method: "PUT", body: { name: it.name, aisle: null } }); closeSheet(); await refresh();
+        }) }, "Auto-sort"),
+        h("button", { type: "button", class: "btn", onclick: e => run(e.currentTarget, async () => {
+          await api("/api/pantry", { method: "POST", body: { name: it.name } }); closeSheet();
+          toast(`${it.name} won't appear on lists any more`); await Promise.all([loadPantry(), refresh()]);
+        }) }, "Always have this")),
+      S.config.pantry && h("div", { class: "row2" },
+        h("button", { type: "button", class: "btn", onclick: () => pantryPicker(it) }, "Link to a pantry product…"))],
+    h("div", { class: "row2" }, h("button", { type: "button", class: "btn danger", onclick: e => confirmTap(e.currentTarget, "Tap again to delete", async () => {
+      await api("/api/list/remove", { method: "POST", body: { week_start: S.week, key: it.key } });
+      closeSheet(); toast(`Deleted ${it.name} from this week's list`); await refresh();
+    }) }, "Delete from list")));
+}
+
+function pantryItemSheet(p) {
+  const setLink = body => async e => run(e.currentTarget, async () => {
+    await api("/api/pantry-links", { method: "PUT", body: { name: p.name, ...body } }); closeSheet(); await refresh();
+  });
+  openSheet(cap(p.name),
+    h("p", { class: "sub", text: `${p.qty ? p.qty + " · " : ""}for ${p.meals.join(", ")}` }),
+    h("p", {}, "Covered by ", h("b", { text: p.product.name }), ` (${p.product.quantity} in the pantry), `,
+      p.auto ? "matched automatically." : "linked by you."),
+    h("div", { class: "row2" },
+      h("button", { type: "button", class: "btn", onclick: () => pantryPicker(p) }, "Use a different product…"),
+      h("button", { type: "button", class: "btn", onclick: setLink({ product_id: null }) }, "Not in pantry — add to list")),
+    !p.auto && h("div", { class: "row2" },
+      h("button", { type: "button", class: "btn ghost", onclick: setLink({ auto: true }) }, "Back to automatic matching")));
+}
+
+async function pantryPicker(item) {
+  const status = h("p", { class: "status", "aria-live": "polite", text: "Loading pantry…" });
+  const search = h("input", { type: "search", placeholder: "Search pantry", "aria-label": "Search pantry", autocomplete: "off" });
+  const results = h("div");
+  openSheet(`Link “${item.name}”`, search, status, results);
+  let products = [];
+  try {
+    const r = await api("/api/pantry-products");
+    if (!r.ok) { status.textContent = "Pantry Tracker isn't reachable right now."; return; }
+    products = r.products; status.textContent = "";
+  } catch (e) { status.textContent = e.message; return; }
+  const draw = () => {
+    const q = search.value.trim().toLowerCase();
+    const shown = products.filter(p => !q || p.name.toLowerCase().includes(q));
+    fill(results, shown.length ? shown.map(p => h("button", { type: "button", class: "pick" + (p.quantity > 0 ? "" : " out"),
+        onclick: e => run(e.currentTarget, async () => {
+          await api("/api/pantry-links", { method: "PUT", body: { name: item.name, product_id: p.id } });
+          closeSheet();
+          toast(p.quantity > 0 ? `${item.name} is covered by ${p.name}` : `Linked to ${p.name} (out of stock, so it stays on the list)`);
+          await refresh();
+        }) },
+        h("span", { class: "t", text: p.name }), h("span", { class: "qty", text: p.quantity > 0 ? `×${p.quantity}` : "out" })))
+      : h("p", { class: "empty", text: "No pantry products match." }));
+  };
+  search.addEventListener("input", draw);
+  draw();
+}
+
+// ---------------------------------------------------------------- boot
+(async function boot() {
+  $("#weekLabel").textContent = weekLabel(S.week);
+  setTab(S.tab);
+  try {
+    S.config = await api("/api/config");
+    await Promise.all([loadMeals(), loadPantry()]);
+  } catch (e) { if (!e.offline) toast(e.message); }
+  await refresh();
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+})();
+</script>
+</body>
+</html>

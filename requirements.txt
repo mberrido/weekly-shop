@@ -1,0 +1,5 @@
+fastapi==0.141.1
+uvicorn==0.53.0
+python-dotenv==1.2.3
+cookidoo-api==0.18.4
+itsdangerous==2.2.0

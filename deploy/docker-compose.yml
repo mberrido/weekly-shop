@@ -1,0 +1,37 @@
+# Compose file for the NAS: runs the prebuilt image from GitHub Container Registry.
+# Put it in /volume1/docker/weekly-shop next to your .env. Watchtower keeps it updated.
+services:
+  weekly-shop:
+    image: ghcr.io/mberrido/weekly-shop:latest
+    container_name: weekly-shop
+    restart: unless-stopped
+    # Run as the DSM user that owns the data folder (set PUID/PGID in .env).
+    user: "${PUID:-1026}:${PGID:-100}"
+    env_file: .env
+    environment:
+      TZ: Europe/London
+      DB_PATH: /data/shop.db
+      # Trust X-Forwarded-For only from localhost and this network's gateway.
+      FORWARDED_ALLOW_IPS: "127.0.0.1,172.30.84.1"
+    ports:
+      - "127.0.0.1:8420:8000"
+    volumes:
+      - /volume1/docker/weekly-shop/data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - shop
+    labels:
+      - com.centurylinklabs.watchtower.enable=true   # needed if Watchtower runs with --label-enable
+
+networks:
+  shop:
+    ipam:
+      config:
+        - subnet: 172.30.84.0/24
+          gateway: 172.30.84.1

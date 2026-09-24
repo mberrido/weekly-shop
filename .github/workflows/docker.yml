@@ -62,3 +62,19 @@ jobs:
             GIT_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # Ask Watchtower on the NAS to pull the new image and restart Weekly Shop.
+  # Watchtower's update call only returns once the update is done, so a 200 means it's deployed.
+  # (Weekly Shop itself is LAN-only, so GitHub can't poll its /healthz like Pantry Tracker does.)
+  deploy:
+    needs: image
+    runs-on: ubuntu-latest
+    env:
+      WATCHTOWER_URL: ${{ secrets.WATCHTOWER_URL }}   # kept out of this public repo
+      TOKEN: ${{ secrets.WATCHTOWER_TOKEN }}
+    steps:
+      - name: Trigger Watchtower
+        run: |
+          if [ -z "$TOKEN" ]; then echo "::warning::WATCHTOWER_TOKEN not set — skipping deploy"; exit 0; fi
+          curl -fsS -m 300 -H "Authorization: Bearer $TOKEN" "$WATCHTOWER_URL/v1/update?image=${IMAGE}"
+          echo "Watchtower updated ${IMAGE} to ${GITHUB_SHA::7}"

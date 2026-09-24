@@ -439,8 +439,22 @@ document.querySelectorAll("nav.tabs button").forEach(b => b.addEventListener("cl
 }));
 // Coming back to the app (e.g. from Pantry Tracker) reloads the list, at most every 5 s.
 let lastRefresh = 0;
-const refreshIfStale = () => {
-  if (document.visibilityState !== "visible" || sheet.open || Date.now() - lastRefresh < 5000) return;
+// Reload the whole app when the NAS is running a newer version than the one loaded here
+// (phones keep home-screen apps alive for days). Never while a panel is open.
+let loadedVersion = null;
+async function checkForUpdate() {
+  try {
+    const r = await fetch("/healthz", { cache: "no-store" });
+    const v = (await r.json()).version;
+    if (!loadedVersion) { loadedVersion = v; return false; }
+    if (v && v !== loadedVersion && !sheet.open) { location.reload(); return true; }
+  } catch {}
+  return false;
+}
+const refreshIfStale = async () => {
+  if (document.visibilityState !== "visible") return;
+  if (await checkForUpdate()) return;
+  if (sheet.open || Date.now() - lastRefresh < 5000) return;
   loadMeals().catch(() => {}).then(refresh);
 };
 document.addEventListener("visibilitychange", refreshIfStale);
@@ -973,6 +987,7 @@ async function pantryPicker(item) {
 
 // ---------------------------------------------------------------- boot
 (async function boot() {
+  checkForUpdate();   // remember which version this page is
   $("#weekLabel").textContent = weekLabel(S.week);
   setTab(S.tab);
   try {

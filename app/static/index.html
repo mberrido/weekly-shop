@@ -851,10 +851,6 @@ function renderList() {
         } catch (e) { if (e.name === "AbortError") return; }
         try { await navigator.clipboard.writeText(text); toast("List copied to clipboard"); } catch { toast("Couldn't share or copy the list"); }
       } }, "Share list"),
-      S.config.cookidoo && h("button", { type: "button", class: "btn", disabled: L.offline, onclick: e => confirmTap(e.currentTarget, "Tap again to send", async () => {
-        const r = await api("/api/cookidoo/send-list", { method: "POST", body: { week_start: S.week } });
-        toast(`Sent ${r.recipes} recipe${r.recipes === 1 ? "" : "s"} and ${r.items} item${r.items === 1 ? "" : "s"} to Cookidoo`);
-      }) }, "Send to Cookidoo list"),
       L.total - L.left > 0 && h("button", { type: "button", class: "btn ghost", disabled: L.offline, onclick: e => run(e.currentTarget, async () => {
         await api("/api/list/untick-all", { method: "POST", body: { week_start: S.week } }); await refresh();
       }) }, "Untick all")),

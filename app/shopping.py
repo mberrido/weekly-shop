@@ -140,8 +140,20 @@ def pantry_stock(conn: sqlite3.Connection, items: dict[str, Item], products: lis
     return out
 
 
+def restock_signature(product: dict) -> str:
+    """Changes when stock or the "add N" setting changes, so a deleted restock line can come back."""
+    return f"{product['quantity']}|{product.get('weekly_shop_qty')}"
+
+
+def low_products(products: list[dict] | None) -> list[dict]:
+    """Pantry products that are low (at or below reorder level) and set to go on Weekly Shop."""
+    return [p for p in (products or [])
+            if p.get("weekly_shop_qty") and p["quantity"] <= p.get("reorder_threshold", 0)]
+
+
 def build_list(conn: sqlite3.Connection, week_start: str, products: list[dict] | None = None,
-               pantry_ok: bool | None = None) -> dict:
+               pantry_ok: bool | None = None, include_restock: bool = False) -> dict:
+    """include_restock: add low Pantry Tracker items (only for the current week)."""
     items = merge_items(planned_meals(conn, week_start), pantry_keys(conn))
     stock = pantry_stock(conn, items, products)
     in_pantry = [
@@ -160,6 +172,19 @@ def build_list(conn: sqlite3.Connection, week_start: str, products: list[dict] |
             {"key": item.key, "name": item.name, "qty": item.qty, "meals": item.meals,
              "aisle": aisle, "checked": item.key in checked, "extra_id": None}
         )
+    if include_restock:
+        removed = dict(conn.execute("SELECT item_key, signature FROM removed WHERE week_start = ? AND item_key LIKE 'p:%'",
+                                    (week_start,)).fetchall())
+        for prod in low_products(products):
+            key = f"p:{prod['id']}"
+            if removed.get(key) == restock_signature(prod):
+                continue
+            aisle = overrides.get(merge_key(prod["name"])) or guess_aisle(prod["name"])
+            groups.setdefault(aisle, []).append(
+                {"key": key, "name": prod["name"], "qty": str(prod["weekly_shop_qty"]), "meals": [],
+                 "aisle": aisle, "checked": key in checked, "extra_id": None,
+                 "pantry_low": {"product_id": prod["id"], "quantity": prod["quantity"]}}
+            )
     for r in conn.execute("SELECT id, name, qty FROM extras WHERE week_start = ? ORDER BY id", (week_start,)):
         key = f"x:{r['id']}"
         groups["Extras"].append(

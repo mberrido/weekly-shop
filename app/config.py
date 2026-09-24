@@ -26,6 +26,7 @@ class Settings:
     cookidoo_country: str = "gb"
     cookidoo_language: str = "en-GB"
     pantry_url: str = ""
+    pantry_read_key: str = field(default="", repr=False)
     pexels_api_key: str = field(default="", repr=False)
 
     @property
@@ -64,5 +65,6 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         cookidoo_country=(env.get("COOKIDOO_COUNTRY") or "gb").strip().lower(),
         cookidoo_language=(env.get("COOKIDOO_LANGUAGE") or "en-GB").strip(),
         pantry_url=(env.get("PANTRY_URL") or "").strip(),
+        pantry_read_key=(env.get("PANTRY_READ_KEY") or "").strip(),
         pexels_api_key=(env.get("PEXELS_API_KEY") or "").strip(),
     )

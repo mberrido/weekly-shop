@@ -20,8 +20,9 @@ TIMEOUT_SECONDS = 4
 
 
 class PantryClient:
-    def __init__(self, base_url: str):
+    def __init__(self, base_url: str, read_key: str = ""):
         self.base_url = (base_url or "").rstrip("/")
+        self._read_key = read_key or ""
         self._cache: tuple[float, list[dict]] | None = None
         self._last_error_logged = 0.0
 
@@ -30,7 +31,10 @@ class PantryClient:
         return bool(self.base_url)
 
     def _fetch(self) -> Any:
-        req = urllib.request.Request(f"{self.base_url}/api/products", headers={"Accept": "application/json"})
+        headers = {"Accept": "application/json"}
+        if self._read_key:  # lets us read while Pantry Tracker's PIN is on
+            headers["X-Pantry-Key"] = self._read_key
+        req = urllib.request.Request(f"{self.base_url}/api/products", headers=headers)
         with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
             return json.load(resp)
 
@@ -45,7 +49,9 @@ class PantryClient:
             data = await asyncio.to_thread(self._fetch)
             rows = data if isinstance(data, list) else data.get("products", [])
             products = [
-                {"id": int(p["id"]), "name": str(p.get("name") or ""), "quantity": int(p.get("quantity") or 0)}
+                {"id": int(p["id"]), "name": str(p.get("name") or ""), "quantity": int(p.get("quantity") or 0),
+                 "reorder_threshold": int(p.get("reorder_threshold") or 0),
+                 "weekly_shop_qty": int(p["weekly_shop_qty"]) if p.get("weekly_shop_qty") else None}
                 for p in rows if isinstance(p, dict) and "id" in p and not p.get("archived")
             ]
         except Exception as e:

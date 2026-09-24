@@ -25,7 +25,8 @@ from .importer import import_ref, legacy_kind, normalise_kinds, parse_ref
 from .pantry_client import PantryClient
 from .photo_search import PexelsClient, PhotoSearchError
 from .parsing import merge_key
-from .shopping import build_list, drop_removed, merge_items, monday_of, pantry_keys, pantry_stock, planned_meals
+from .shopping import (build_list, drop_removed, low_products, merge_items, monday_of, pantry_keys, pantry_stock,
+                       planned_meals, restock_signature)
 
 log = logging.getLogger("weekly_shop")
 STATIC = Path(__file__).parent / "static"
@@ -176,7 +177,7 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
         )
 
     if pantry is None:
-        pantry = PantryClient(settings.pantry_url)
+        pantry = PantryClient(settings.pantry_url, settings.pantry_read_key)
     if photos is None:
         photos = PexelsClient(settings.pexels_api_key)
 
@@ -466,7 +467,7 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
         products = await pantry.products()
         ok = (products is not None) if pantry.configured else None
         with conn() as c:
-            return build_list(c, ws, products, ok)
+            return build_list(c, ws, products, ok, include_restock=ws == monday_of().isoformat())
 
     # -- Pantry Tracker (read-only) ------------------------------------------
 
@@ -497,14 +498,28 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
                 c.execute("DELETE FROM checked WHERE week_start = ? AND item_key = ?", (ws, body.key))
         return {"ok": True}
 
+    def remove_restock(c, ws: str, key: str, products: list[dict] | None) -> bool:
+        """Hide a low-pantry line until its stock or setting changes."""
+        prod = next((p for p in low_products(products) if f"p:{p['id']}" == key), None)
+        if prod is None:
+            return False
+        c.execute("INSERT INTO removed(week_start, item_key, signature) VALUES (?,?,?) "
+                  "ON CONFLICT(week_start, item_key) DO UPDATE SET signature = excluded.signature",
+                  (ws, key, restock_signature(prod)))
+        return True
+
     @app.post("/api/list/remove")
-    def remove_item(body: RemoveIn):
+    async def remove_item(body: RemoveIn):
         """Delete an item from this week's list. Extras are deleted outright; meal
         ingredients are hidden until something changes (see shopping.drop_removed)."""
         ws = _ws(body.week_start)
+        products = await pantry.products() if body.key.startswith("p:") else None
         with conn() as c:
             if body.key.startswith("x:"):
                 c.execute("DELETE FROM extras WHERE id = ? AND week_start = ?", (body.key[2:], ws))
+            elif body.key.startswith("p:"):
+                if not remove_restock(c, ws, body.key, products):
+                    raise HTTPException(404, "That item isn't on this week's list.")
             else:
                 item = merge_items(planned_meals(c, ws), pantry_keys(c)).get(body.key)
                 if item is None:
@@ -516,15 +531,18 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
         return {"ok": True}
 
     @app.post("/api/list/empty-basket")
-    def empty_basket(body: WeekIn):
+    async def empty_basket(body: WeekIn):
         """Take every ticked item off this week's list (they come back if needed again, like Delete)."""
         ws = _ws(body.week_start)
+        products = await pantry.products()
         with conn() as c:
             ticked = [r[0] for r in c.execute("SELECT item_key FROM checked WHERE week_start = ?", (ws,))]
             items = merge_items(planned_meals(c, ws), pantry_keys(c))
             for key in ticked:
                 if key.startswith("x:"):
                     c.execute("DELETE FROM extras WHERE id = ? AND week_start = ?", (key[2:], ws))
+                elif key.startswith("p:"):
+                    remove_restock(c, ws, key, products)
                 elif key in items:
                     c.execute("INSERT INTO removed(week_start, item_key, signature) VALUES (?,?,?) "
                               "ON CONFLICT(week_start, item_key) DO UPDATE SET signature = excluded.signature",

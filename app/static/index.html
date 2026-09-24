@@ -31,6 +31,7 @@
   --accent-soft: #DCEEDD;
   --mustard: #E3B23C;
   --mustard-soft: #F7EBC4;
+  --amber-ink: #8A5A00;
   --danger: #B3412E;
   --shadow: 0 1px 2px rgba(23,54,42,.06), 0 4px 16px rgba(23,54,42,.06);
   --display: "Bricolage Grotesque", "Helvetica Neue", "Arial Nova", Arial, system-ui, sans-serif;
@@ -52,6 +53,7 @@
     --accent-soft: #1F3A28;
     --mustard: #E8BE55;
     --mustard-soft: #3A3218;
+    --amber-ink: #E8BE55;
     --danger: #F08A76;
     --shadow: 0 1px 2px rgba(0,0,0,.3);
   }
@@ -159,6 +161,7 @@ li.done .tick span svg { opacity: 1; }
 .itemmain .q { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--ink); font-weight: 700; white-space: nowrap; font-size: 15px; }
 li.done .nm, li.done .q { text-decoration: line-through; color: var(--ink-2); font-weight: 500; }
 .for { color: var(--ink-2); font-size: 12.5px; }
+.for.low { color: var(--amber-ink); font-weight: 700; }
 form.extra { display: grid; grid-template-columns: 1fr 96px auto; gap: 8px; margin-top: 20px; }
 input[type=text], input[type=search], input[type=number], textarea, select {
   width: 100%; min-height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); padding: 10px 12px; font-size: 16px;
@@ -830,7 +833,8 @@ function renderList() {
     };
     li.append(tick, h("button", { type: "button", class: "itemmain", onclick: () => itemSheet(it) },
       h("span", { class: "row" }, h("span", { class: "nm", text: cap(it.name) }), it.qty && h("span", { class: "q", text: it.qty })),
-      it.meals.length ? h("span", { class: "for", text: "for " + it.meals.join(", ") }) : null));
+      it.pantry_low ? h("span", { class: "for low", text: `Low in pantry · ${it.pantry_low.quantity} left` })
+        : it.meals.length ? h("span", { class: "for", text: "for " + it.meals.join(", ") }) : null));
     return li;
   };
   // Unticked items stay under their aisle; ticked ones drop into "In the basket" (kept in aisle order).
@@ -911,11 +915,12 @@ function itemSheet(it) {
         h("button", { type: "button", class: "btn ghost", onclick: e => run(e.currentTarget, async () => {
           await api("/api/aisles", { method: "PUT", body: { name: it.name, aisle: null } }); closeSheet(); await refresh();
         }) }, "Auto-sort"),
-        h("button", { type: "button", class: "btn", onclick: e => run(e.currentTarget, async () => {
+        !it.pantry_low && h("button", { type: "button", class: "btn", onclick: e => run(e.currentTarget, async () => {
           await api("/api/pantry", { method: "POST", body: { name: it.name } }); closeSheet();
           toast(`${it.name} won't appear on lists any more`); await Promise.all([loadPantry(), refresh()]);
         }) }, "Always have this")),
-      S.config.pantry && h("div", { class: "row2" },
+      it.pantry_low && h("p", { class: "hint", text: "Added because it's low in Pantry Tracker. Restock it there and it drops off this list." }),
+      S.config.pantry && !it.pantry_low && h("div", { class: "row2" },
         h("button", { type: "button", class: "btn", onclick: () => pantryPicker(it) }, "Link to a pantry product…"))],
     h("div", { class: "row2" }, h("button", { type: "button", class: "btn danger", onclick: e => confirmTap(e.currentTarget, "Tap again to delete", async () => {
       await api("/api/list/remove", { method: "POST", body: { week_start: S.week, key: it.key } });

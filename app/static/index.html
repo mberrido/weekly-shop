@@ -427,14 +427,23 @@ function openSheet(title, ...content) {
   fill(body, 
     h("div", { class: "sheet-head" },
       h("h2", { id: "sheetTitle", text: title }),
-      h("button", { type: "button", class: "iconbtn", "aria-label": "Close", onclick: closeSheet, text: "✕" })),
+      h("button", { type: "button", class: "iconbtn", "aria-label": "Close", onclick: requestCloseSheet, text: "✕" })),
     ...content);
+  sheetBeforeClose = null;
   sheet.setAttribute("aria-labelledby", "sheetTitle");
   if (!sheet.open) sheet.showModal();
   body.scrollTop = 0;
 }
 function closeSheet() { if (sheet.open) sheet.close(); }
-sheet.addEventListener("click", e => { if (e.target === sheet) closeSheet(); });
+// ✕, tapping outside and Escape go through here, so a sheet can save first (the meal editor does).
+// The hook returns false to stay open.
+let sheetBeforeClose = null;
+async function requestCloseSheet() {
+  if (sheetBeforeClose && (await sheetBeforeClose()) === false) return;
+  closeSheet();
+}
+sheet.addEventListener("click", e => { if (e.target === sheet) requestCloseSheet(); });
+sheet.addEventListener("cancel", e => { e.preventDefault(); requestCloseSheet(); });
 
 // ---------------------------------------------------------------- tabs & week switcher
 function setTab(tab) {
@@ -754,14 +763,19 @@ function mealSheet(meal, defaultKind) {
       camIn, libIn),
     credit, webPanel);
 
-  const form = h("form", { onsubmit: async e => {
-    e.preventDefault();
+  // Returns true once saved (or when there was nothing to save), false if it couldn't be.
+  const snapshot = () => JSON.stringify([name.value.trim(), checkedTimes(form), serves.value, ta.value.trim()]);
+  let original;
+  const dirty = () => snapshot() !== original || pendingPhoto || pendingPexels || removePhoto;
+  const saveMeal = async btn => {
     const kinds = checkedTimes(form);
-    if (!kinds.length) { toast("Tick at least one meal time"); return; }
+    if (!name.value.trim()) { toast("Give the meal a name to save it"); name.focus(); return false; }
+    if (!kinds.length) { toast("Tick at least one meal time"); return false; }
     const body = { name: name.value.trim(), kinds,
       servings: Math.max(1, Math.min(50, parseInt(serves.value, 10) || 4)),
       ingredients: ta.value.split("\n").map(l => l.trim()).filter(Boolean).map(parseLine).filter(i => i.name) };
-    await run(form.querySelector("button[type=submit]"), async () => {
+    let ok = false;
+    await run(btn, async () => {
       const choosing = pendingPhoto || pendingPexels;
       const saved = await api(isNew ? `/api/meals${choosing ? "?auto_photo=false" : ""}` : `/api/meals/${meal.id}`,
                               { method: isNew ? "POST" : "PUT", body });
@@ -771,11 +785,14 @@ function mealSheet(meal, defaultKind) {
         else if (pendingPexels) await api(`/api/meals/${saved.id}/photo/pexels`, { method: "POST", body: { photo_id: pendingPexels } });
         else if (removePhoto) await api(`/api/meals/${saved.id}/photo`, { method: "DELETE" });
       } catch (err) { msg = `Meal saved, but the photo didn't save: ${err.message}`; }
+      ok = true;
       closeSheet(); toast(msg); await loadMeals(); await refresh();
       // New meals without a photo get one from Pexels in the background; show it when it lands.
       if (isNew && !choosing && S.config.photos) setTimeout(async () => { try { await loadMeals(); render(); } catch {} }, 4000);
     });
-  } },
+    return ok;
+  };
+  const form = h("form", { onsubmit: e => { e.preventDefault(); saveMeal(form.querySelector("button[type=submit]")); } },
     h("label", { class: "field", for: "f-name" }, h("span", { class: "lab", text: "Name" }), name),
     photoField,
     h("div", { class: "field" }, h("span", { class: "lab", text: "Meal time" }), mealTimes("kinds", meal.kinds)),
@@ -789,6 +806,9 @@ function mealSheet(meal, defaultKind) {
       }) }, "Delete"),
       h("button", { type: "submit", class: "btn primary" }, isNew ? "Add meal" : "Save")));
   openSheet(isNew ? "New meal" : "Edit meal", form);
+  original = snapshot();
+  // Closing with ✕, a tap outside or Escape saves any changes.
+  sheetBeforeClose = async () => (dirty() ? saveMeal(null) : true);
   if (isNew) name.focus();
 }
 

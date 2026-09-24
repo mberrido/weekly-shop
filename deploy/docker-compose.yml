@@ -14,7 +14,7 @@ services:
       # Trust X-Forwarded-For only from localhost and this network's gateway.
       FORWARDED_ALLOW_IPS: "127.0.0.1,172.30.84.1"
     ports:
-      - "127.0.0.1:8420:8000"
+      - "8420:8000"
     volumes:
       - /volume1/docker/weekly-shop/data:/data
     read_only: true

@@ -93,11 +93,13 @@ restarting.
 
 ### Or over SSH
 
+DSM's Docker uses `docker-compose` (with a hyphen). On a standard Docker install it's `docker compose`.
+
 ```sh
 cd /volume1/docker/weekly-shop
-sudo docker compose pull
-sudo docker compose up -d
-sudo docker compose ps          # STATUS should say (healthy)
+sudo docker-compose pull
+sudo docker-compose up -d
+sudo docker-compose ps          # STATUS should say (healthy)
 curl -s http://127.0.0.1:8420/healthz   # {"ok":true}
 ```
 
@@ -115,17 +117,17 @@ container, or set `REPO_USER` / `REPO_PASS`).
 **Manually:**
 - **GUI:** Container Manager → Project → `weekly-shop` → **Action → Stop**,
   then Image → `ghcr.io/mberrido/weekly-shop` → **Update** (or pull), then start the project.
-- **SSH:** `cd /volume1/docker/weekly-shop && sudo docker compose pull && sudo docker compose up -d`
+- **SSH:** `cd /volume1/docker/weekly-shop && sudo docker-compose pull && sudo docker-compose up -d`
 
 **Roll back:** change the image tag in `docker-compose.yml` from `latest` to an
 earlier `sha-…` tag (listed on the package page on GitHub) and run
-`sudo docker compose up -d`.
+`sudo docker-compose up -d`.
 
 Your data in `data/` is never touched by updates. The database schema is
 upgraded automatically on start.
 
 **Build locally instead?** The repo's own `docker-compose.yml` builds from
-source (`sudo docker compose up -d --build`) if you'd rather not use the registry.
+source (`sudo docker-compose up -d --build`) if you'd rather not use the registry.
 
 ## 5. Backups with Hyper Backup
 
@@ -144,9 +146,9 @@ restore from.
 database and restart:
 
 ```sh
-sudo docker compose stop
+sudo docker-compose stop
 cp data/backups/shop-2026-09-20.db data/shop.db
-sudo docker compose start
+sudo docker-compose start
 ```
 
 ---

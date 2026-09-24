@@ -14,9 +14,8 @@ services:
       # which is where DSM's reverse proxy / tailscale serve connect from.
       FORWARDED_ALLOW_IPS: "127.0.0.1,172.30.84.1"
     ports:
-      # Localhost only: reachable through the reverse proxy / tailscale serve,
-      # never directly from the LAN or the internet. Avoids DSM's 5000/5001.
-      - "127.0.0.1:8420:8000"
+      # http://<nas-ip>:8420 on the home network. Don't forward 8420 on the router.
+      - "8420:8000"
     volumes:
       - ${DATA_DIR:-/volume1/docker/weekly-shop/data}:/data
     read_only: true

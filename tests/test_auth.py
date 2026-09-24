@@ -177,3 +177,12 @@ def test_forwarded_for_trusted_only_from_proxy(make_client):
         assert limiter.remaining("192.168.1.50") == 4 and limiter.remaining("9.9.9.9") == 5
     finally:
         client.close()
+
+
+def test_plain_http_login_works_without_secure_flag(make_client):
+    """Home-network access at http://<nas-ip>:8420 needs a non-Secure cookie."""
+    c = make_client()
+    c.scheme = "http"
+    r = c.post("/login", data={"pin": PASSWORD})
+    assert r.status_code == 303 and "secure" not in r.set_cookies[0].lower()
+    assert c.get("/api/meals").status_code == 200

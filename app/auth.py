@@ -131,8 +131,9 @@ class Sessions:
         return time.time() - ts.timestamp()
 
 
-def set_session_cookie(response: Response, token: str) -> None:
-    response.set_cookie(COOKIE, token, max_age=MAX_AGE, path="/", secure=True, httponly=True, samesite="lax")
+def set_session_cookie(response: Response, token: str, secure: bool) -> None:
+    # Secure over HTTPS (reverse proxy / Tailscale); plain HTTP on the home network needs it off.
+    response.set_cookie(COOKIE, token, max_age=MAX_AGE, path="/", secure=secure, httponly=True, samesite="lax")
 
 
 def _safe_next(target: str | None) -> str:
@@ -236,7 +237,7 @@ def install(app: FastAPI, password: str, secret: str, limiter: LoginLimiter | No
                 response = await call_next(request)
                 refresh = age > REFRESH_AFTER
         if refresh:
-            set_session_cookie(response, sessions.issue())
+            set_session_cookie(response, sessions.issue(), request.url.scheme == "https")
         for k, v in SECURITY_HEADERS.items():
             response.headers.setdefault(k, v)
         return response
@@ -274,7 +275,7 @@ def install(app: FastAPI, password: str, secret: str, limiter: LoginLimiter | No
             limiter.reset(ip)
             log.info("Login from %s", ip)
             response = RedirectResponse(_safe_next(next_url), status_code=303)
-            set_session_cookie(response, sessions.issue())
+            set_session_cookie(response, sessions.issue(), request.url.scheme == "https")
             return response
 
         limiter.fail(ip)
@@ -287,7 +288,7 @@ def install(app: FastAPI, password: str, secret: str, limiter: LoginLimiter | No
         return login_page(next_url, f"Wrong PIN. {left} attempt{'s' if left != 1 else ''} left.", status=401)
 
     @app.post("/logout", include_in_schema=False)
-    async def logout():
+    async def logout(request: Request):
         response = RedirectResponse("/login", status_code=303)
-        response.delete_cookie(COOKIE, path="/", secure=True, httponly=True, samesite="lax")
+        response.delete_cookie(COOKIE, path="/", secure=request.url.scheme == "https", httponly=True, samesite="lax")
         return response

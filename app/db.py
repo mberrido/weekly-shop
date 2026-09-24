@@ -54,7 +54,15 @@ CREATE TABLE IF NOT EXISTS extras (
     id         INTEGER PRIMARY KEY,
     week_start TEXT NOT NULL,
     name       TEXT NOT NULL,
-    qty        TEXT NOT NULL DEFAULT ''
+    qty        TEXT NOT NULL DEFAULT '',
+    regular_id INTEGER             -- set when added from a Regular item
+);
+
+-- Things bought often; ticking one adds it to the week's list as an extra.
+CREATE TABLE IF NOT EXISTS regulars (
+    id   INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    qty  TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS extras_week ON extras(week_start);
 
@@ -92,7 +100,7 @@ CREATE TABLE IF NOT EXISTS pantry_links (
 """
 
 PANTRY_SEED = ["salt", "water", "black pepper", "ground black pepper", "ice cubes"]
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def connect(path: str) -> sqlite3.Connection:
@@ -144,6 +152,10 @@ def init_db(path: str) -> None:
                 conn.execute("ALTER TABLE meals ADD COLUMN kinds TEXT NOT NULL DEFAULT ''")
             conn.execute("UPDATE meals SET kinds = CASE kind WHEN 'any' THEN 'breakfast,lunch,dinner' ELSE kind END "
                          "WHERE kinds = ''")
+        if version < 5:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(extras)")}
+            if "regular_id" not in cols:
+                conn.execute("ALTER TABLE extras ADD COLUMN regular_id INTEGER")
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 

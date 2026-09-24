@@ -185,12 +185,21 @@ def build_list(conn: sqlite3.Connection, week_start: str, products: list[dict] |
                  "aisle": aisle, "checked": key in checked, "extra_id": None,
                  "pantry_low": {"product_id": prod["id"], "quantity": prod["quantity"]}}
             )
-    for r in conn.execute("SELECT id, name, qty FROM extras WHERE week_start = ? ORDER BY id", (week_start,)):
+    for r in conn.execute("SELECT id, name, qty, regular_id FROM extras WHERE week_start = ? ORDER BY id", (week_start,)):
         key = f"x:{r['id']}"
-        groups["Extras"].append(
-            {"key": key, "name": r["name"], "qty": r["qty"], "meals": [], "aisle": "Extras",
-             "checked": key in checked, "extra_id": r["id"]}
-        )
+        row = {"key": key, "name": r["name"], "qty": r["qty"], "meals": [], "aisle": "Extras",
+               "checked": key in checked, "extra_id": r["id"]}
+        if r["regular_id"] is not None:   # Regular items go in their normal aisle
+            row["aisle"] = overrides.get(merge_key(r["name"])) or guess_aisle(r["name"])
+            row["regular"] = True
+        groups.setdefault(row["aisle"], []).append(row)
+    regulars = [
+        dict(r) | {"on_list": bool(r["on_list"])}
+        for r in conn.execute(
+            """SELECT g.id, g.name, g.qty,
+                      EXISTS(SELECT 1 FROM extras x WHERE x.regular_id = g.id AND x.week_start = ?) AS on_list
+               FROM regulars g ORDER BY g.name COLLATE NOCASE""", (week_start,))
+    ]
 
     aisles = []
     for name, rows in groups.items():
@@ -201,4 +210,4 @@ def build_list(conn: sqlite3.Connection, week_start: str, products: list[dict] |
     total = sum(len(a["items"]) for a in aisles)
     left = sum(1 for a in aisles for i in a["items"] if not i["checked"])
     return {"week_start": week_start, "aisles": aisles, "total": total, "left": left,
-            "in_pantry": in_pantry, "pantry_ok": pantry_ok}
+            "in_pantry": in_pantry, "pantry_ok": pantry_ok, "regulars": regulars}

@@ -88,6 +88,11 @@ class ExtraIn(BaseModel):
     qty: str = Field(default="", max_length=40)
 
 
+class RegularIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    qty: str = Field(default="", max_length=40)
+
+
 class NameIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
 
@@ -562,6 +567,36 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
             cur = c.execute("INSERT INTO extras(week_start, name, qty) VALUES (?,?,?)",
                             (_ws(body.week_start), body.name.strip(), body.qty.strip()))
             return {"id": cur.lastrowid}
+
+    # -- regular items ------------------------------------------------------
+
+    @app.post("/api/regulars", status_code=201)
+    def add_regular(body: RegularIn):
+        with conn() as c:
+            cur = c.execute("INSERT INTO regulars(name, qty) VALUES (?, ?)", (body.name.strip(), body.qty.strip()))
+            return {"id": cur.lastrowid}
+
+    @app.delete("/api/regulars/{regular_id}", status_code=204)
+    def delete_regular(regular_id: int):
+        with conn() as c:
+            c.execute("DELETE FROM regulars WHERE id = ?", (regular_id,))
+
+    @app.post("/api/regulars/{regular_id}/toggle")
+    def toggle_regular(regular_id: int, body: WeekIn):
+        """Put a regular item on this week's list, or take it off again."""
+        ws = _ws(body.week_start)
+        with conn() as c:
+            reg = c.execute("SELECT name, qty FROM regulars WHERE id = ?", (regular_id,)).fetchone()
+            if not reg:
+                raise HTTPException(404, "Regular item not found")
+            on = [r[0] for r in c.execute("SELECT id FROM extras WHERE regular_id = ? AND week_start = ?", (regular_id, ws))]
+            if on:
+                c.executemany("DELETE FROM extras WHERE id = ?", [(i,) for i in on])
+                c.executemany("DELETE FROM checked WHERE week_start = ? AND item_key = ?", [(ws, f"x:{i}") for i in on])
+                return {"on_list": False}
+            c.execute("INSERT INTO extras(week_start, name, qty, regular_id) VALUES (?,?,?,?)",
+                      (ws, reg["name"], reg["qty"], regular_id))
+            return {"on_list": True}
 
     @app.delete("/api/extras/{extra_id}", status_code=204)
     def delete_extra(extra_id: int):

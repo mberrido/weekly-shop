@@ -173,6 +173,15 @@ textarea { min-height: 200px; resize: vertical; line-height: 1.5; }
 .pchip.armed { border-color: var(--danger); }
 .pchip button.armed { width: auto; height: 30px; margin: 3px 3px 3px 6px; padding: 0 12px; border-radius: 999px;
   background: var(--danger); color: #fff; font-size: 13px; font-weight: 700; }
+.pchip.reg .rtoggle { display: inline-flex; align-items: center; gap: 7px; width: auto; height: 38px; padding: 0 6px 0 0;
+  color: var(--ink); font-size: 14px; }
+.pchip.reg { padding-left: 8px; }
+.pchip.reg .from { color: var(--ink-2); font-size: 12.5px; }
+.rbox { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--accent); display: grid; place-items: center; flex: none; }
+.rbox svg { width: 13px; height: 13px; opacity: 0; color: var(--accent-ink); }
+.pchip.reg.on { border-color: var(--accent); background: var(--accent-soft); }
+.pchip.reg.on .rbox { background: var(--accent); }
+.pchip.reg.on .rbox svg { opacity: 1; }
 button.pchip.stock { gap: 6px; padding: 0 14px; min-height: 36px; border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
 button.pchip.stock .from { color: var(--ink-2); font-size: 12.5px; }
 .pantrynote { color: var(--ink-2); font-size: 13px; margin: 0 0 8px; }
@@ -904,7 +913,40 @@ function renderList() {
     h("form", { class: "extra", style: "grid-template-columns: 1fr auto", onsubmit: e => { e.preventDefault(); if (!pantryIn.value.trim()) return;
       run(e.target.querySelector("button"), async () => {
         await api("/api/pantry", { method: "POST", body: { name: pantryIn.value.trim() } }); await Promise.all([loadPantry(), refresh()]);
-      }); } }, pantryIn, h("button", { type: "submit", class: "btn" }, "Add")));
+      }); } }, pantryIn, h("button", { type: "submit", class: "btn" }, "Add")),
+    regularsSection(L));
+}
+
+// Regular items: things bought often. Tick one to put it on this week's list; once it's
+// bought and the basket is emptied it unticks itself, ready for next time.
+function regularsSection(L) {
+  const regs = L.regulars || [];
+  const name = h("input", { type: "text", placeholder: "Add a regular (e.g. bread)", "aria-label": "Regular item", maxLength: 120, required: true });
+  const qty = h("input", { type: "text", placeholder: "Qty", "aria-label": "Usual quantity", maxLength: 40 });
+  return [
+    h("h3", { class: "aisle", text: `Regular items${regs.length ? " · " + regs.filter(r => r.on_list).length + " on list" : ""}` }),
+    regs.length ? h("div", { class: "pantry" }, regs.map(r =>
+      h("span", { class: "pchip reg" + (r.on_list ? " on" : "") },
+        h("button", { type: "button", class: "rtoggle", "aria-pressed": String(r.on_list),
+          "aria-label": `${cap(r.name)}${r.qty ? ", " + r.qty : ""}: ${r.on_list ? "on the list, tap to take off" : "tap to add to the list"}`,
+          disabled: L.offline, onclick: e => run(e.currentTarget, async () => {
+            const res = await api(`/api/regulars/${r.id}/toggle`, { method: "POST", body: { week_start: S.week } });
+            toast(res.on_list ? `Added ${cap(r.name)} to the list` : `Took ${cap(r.name)} off the list`);
+            await refresh();
+          }) },
+          h("span", { class: "rbox", "aria-hidden": "true" }, svgCheck()),
+          h("span", { text: cap(r.name) }), r.qty && h("span", { class: "from", text: r.qty })),
+        h("button", { type: "button", "aria-label": `Delete ${r.name} from regular items`,
+          onclick: e => confirmTap(e.currentTarget, "Remove?", async () => {
+            await api(`/api/regulars/${r.id}`, { method: "DELETE" }); toast(`Removed ${cap(r.name)} from regular items`); await refresh();
+          }) }, "✕"))))
+    : h("p", { class: "hint", text: "Add things you buy often. Tick one to put it on this week's list." }),
+    h("form", { class: "extra", onsubmit: e => { e.preventDefault(); if (!name.value.trim()) return;
+      run(e.target.querySelector("button"), async () => {
+        await api("/api/regulars", { method: "POST", body: { name: name.value.trim(), qty: qty.value.trim() } });
+        toast(`Added ${cap(name.value.trim())} to regular items`); await refresh();
+      }); } }, name, qty, h("button", { type: "submit", class: "btn" }, "Add")),
+  ];
 }
 
 function rerenderListKeepingFocus(key) {

@@ -75,6 +75,6 @@ jobs:
     steps:
       - name: Trigger Watchtower
         run: |
-          if [ -z "$TOKEN" ]; then echo "::warning::WATCHTOWER_TOKEN not set — skipping deploy"; exit 0; fi
+          if [ -z "$TOKEN" ] || [ -z "$WATCHTOWER_URL" ]; then echo "::warning::WATCHTOWER_TOKEN / WATCHTOWER_URL not set — skipping deploy"; exit 0; fi
           curl -fsS -m 300 -H "Authorization: Bearer $TOKEN" "$WATCHTOWER_URL/v1/update?image=${IMAGE}"
           echo "Watchtower updated ${IMAGE} to ${GITHUB_SHA::7}"

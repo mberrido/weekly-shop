@@ -942,7 +942,7 @@ function renderList() {
           toast(`Cleared ${r.cleared} item${r.cleared === 1 ? "" : "s"} from the list`); await refresh();
         }) }, "Clear list")),
     !L.total && h("div", { class: "empty" }, h("h2", { text: "Nothing to buy yet" }),
-      h("p", { text: "Plan some meals for this week and the list builds itself." }),
+      h("p", { text: "Plan some meals and the list builds itself." }),
       h("button", { type: "button", class: "btn", onclick: () => setTab("week") }, "Plan the week")),
     todo.map(a => [
       h("h3", { class: "aisle", text: `${a.name} · ${a.items.length}` }),
@@ -959,6 +959,7 @@ function renderList() {
       await api("/api/extras", { method: "POST", body: { week_start: S.week, name: extraName.value.trim(), qty: extraQty.value.trim() } });
       toast(`Added ${extraName.value.trim()}`); await refresh();
     }); } }, extraName, extraQty, h("button", { type: "submit", class: "btn" }, "Add")),
+    regularsSection(L),
     h("h3", { class: "aisle", text: "Always in the cupboard" }),
     L.pantry_ok === false && h("p", { class: "pantrynote", text: "Pantry Tracker isn't reachable right now, so nothing is being taken off the list." }),
     (L.in_pantry || []).length > 0 && h("div", { class: "pantry", style: "margin-bottom: 8px" }, L.in_pantry.map(p =>
@@ -973,11 +974,10 @@ function renderList() {
     h("form", { class: "extra", style: "grid-template-columns: 1fr auto", onsubmit: e => { e.preventDefault(); if (!pantryIn.value.trim()) return;
       run(e.target.querySelector("button"), async () => {
         await api("/api/pantry", { method: "POST", body: { name: pantryIn.value.trim() } }); await Promise.all([loadPantry(), refresh()]);
-      }); } }, pantryIn, h("button", { type: "submit", class: "btn" }, "Add")),
-    regularsSection(L));
+      }); } }, pantryIn, h("button", { type: "submit", class: "btn" }, "Add")));
 }
 
-// Regular items: things bought often. Tick one to put it on this week's list; once it's
+// Regular items: things bought often. Tick one to put it on the list; once it's
 // bought and the basket is emptied it unticks itself, ready for next time.
 function regularsSection(L) {
   const regs = L.regulars || [];

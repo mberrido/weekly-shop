@@ -215,6 +215,12 @@ dialog.sheet[open] { animation: up .2s ease-out; }
 @keyframes up { from { transform: translateY(24px); opacity: 0; } }
 .sheet-in { padding: 18px 16px calc(16px + env(safe-area-inset-bottom)); overflow-y: auto; max-height: 88vh; }
 .sheet-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+/* Search panels: fixed tall height so the search bar sits near the top of the screen with
+   results right under it, above the phone keyboard, and the search bar stays pinned. */
+dialog.sheet.tall { height: 88vh; height: 88dvh; }
+dialog.sheet.tall .sheet-in { height: 100%; max-height: none; }
+@media (min-width: 600px) { dialog.sheet.tall { height: min(88dvh, 720px); } }
+.sheet-search { position: sticky; top: -18px; z-index: 1; margin: -18px -16px 8px; padding: 18px 16px 8px; background: var(--paper); }
 .sheet-head h2 { flex: 1; font-size: 22px; font-weight: 800; }
 .pick { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px; margin-bottom: 6px; min-height: 52px; }
 .pick .thumb { width: 40px; height: 40px; font-size: 16px; }
@@ -427,6 +433,7 @@ const S = {
 const sheet = $("#sheet");
 function openSheet(title, ...content) {
   const body = $("#sheetBody");
+  sheet.classList.remove("tall");
   fill(body, 
     h("div", { class: "sheet-head" },
       h("h2", { id: "sheetTitle", text: title }),
@@ -436,6 +443,12 @@ function openSheet(title, ...content) {
   sheet.setAttribute("aria-labelledby", "sheetTitle");
   if (!sheet.open) sheet.showModal();
   body.scrollTop = 0;
+}
+// Call after openSheet for panels with a search box: tall sheet, search pinned at the top.
+function makeSearchSheet(input) {
+  sheet.classList.add("tall");
+  const wrap = h("div", { class: "sheet-search" });
+  input.replaceWith(wrap); wrap.append(input);
 }
 function closeSheet() { if (sheet.open) sheet.close(); }
 // ✕, tapping outside and Escape go through here, so a sheet can save first (the meal editor does).
@@ -614,6 +627,7 @@ function pickerSheet(day, slot) {
   search.addEventListener("input", draw);
   draw();
   openSheet(`Add ${slot} · ${DAYS[day]}`, search, results);
+  makeSearchSheet(search);
   if (S.meals.length > 6) search.focus();
 }
 
@@ -866,6 +880,7 @@ function importSheet() {
       h("button", { type: "submit", class: "btn primary" }, "Import")),
     h("p", { class: "or", text: "or search" }),
     h("label", { for: "imp-q", class: "sr-only", text: "Search Cookidoo" }), q, status, results);
+  sheet.classList.add("tall");   // results stay above the keyboard; the link form sits above the search
 }
 
 // ---------------------------------------------------------------- LIST
@@ -1060,6 +1075,7 @@ async function pantryPicker(item) {
   const search = h("input", { type: "search", placeholder: "Search pantry", "aria-label": "Search pantry", autocomplete: "off" });
   const results = h("div");
   openSheet(`Link “${item.name}”`, search, status, results);
+  makeSearchSheet(search);
   let products = [];
   try {
     const r = await api("/api/pantry-products");

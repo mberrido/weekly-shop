@@ -218,6 +218,9 @@ dialog.sheet[open] { animation: up .2s ease-out; }
 .sheet-head h2 { flex: 1; font-size: 22px; font-weight: 800; }
 .pick { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 8px; margin-bottom: 6px; min-height: 52px; }
 .pick .thumb { width: 40px; height: 40px; font-size: 16px; }
+.pick .pickbody { flex: 1; min-width: 0; }
+.pick.planned { border-color: var(--accent); }
+.plannedtag { flex: none; font-size: 12px; font-weight: 700; color: var(--accent-ink); background: var(--accent); border-radius: 999px; padding: 4px 9px; white-space: nowrap; }
 .grouplabel { font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-2); margin: 14px 0 6px; }
 .seg { display: flex; flex-wrap: wrap; gap: 6px; }
 .seg label { position: relative; }
@@ -587,10 +590,20 @@ function pickerSheet(day, slot) {
     const ms = S.meals.filter(m => !q || m.name.toLowerCase().includes(q));
     const fit = ms.filter(m => m.kinds.includes(slot));
     const rest = ms.filter(m => !m.kinds.includes(slot));
-    const item = m => h("button", { type: "button", class: "pick", onclick: e => run(e.currentTarget, async () => {
-        await api("/api/plan", { method: "POST", body: { week_start: S.week, day, slot, meal_id: m.id } });
-        closeSheet(); toast(`Added ${m.name}`); await refresh();
-      }) }, mealThumb(m), h("span", {}, h("span", { class: "t", text: m.name }), h("br"), h("span", { class: "meta", text: `${mealTimesText(m.kinds)} · serves ${m.servings}` })));
+    // Days this week the meal is already planned on (any meal time): shown as a marker, still pickable.
+    const plannedDays = m => [...new Set((S.weekData?.entries || []).filter(e => e.meal_id === m.id).map(e => e.day))].sort();
+    const item = m => {
+      const days = plannedDays(m);
+      const when = days.map(d => DAYS[d].slice(0, 3)).join(", ");
+      return h("button", { type: "button", class: "pick" + (days.length ? " planned" : ""),
+        "aria-label": `${m.name}${days.length ? `, already planned on ${days.map(d => DAYS[d]).join(", ")}` : ""}`,
+        onclick: e => run(e.currentTarget, async () => {
+          await api("/api/plan", { method: "POST", body: { week_start: S.week, day, slot, meal_id: m.id } });
+          closeSheet(); toast(`Added ${m.name}`); await refresh();
+        }) }, mealThumb(m),
+        h("span", { class: "pickbody" }, h("span", { class: "t", text: m.name }), h("br"), h("span", { class: "meta", text: `${mealTimesText(m.kinds)} · serves ${m.servings}` })),
+        days.length > 0 && h("span", { class: "plannedtag", "aria-hidden": "true", text: `✓ ${when}` }));
+    };
     fill(results, 
       !S.meals.length && h("p", { class: "empty", text: "No meals yet. Add some in the Meals tab." }),
       fit.length ? [h("div", { class: "grouplabel", text: `For ${slot}` }), fit.map(item)] : null,

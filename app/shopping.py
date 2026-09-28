@@ -194,7 +194,8 @@ def build_list(conn: sqlite3.Connection, products: list[dict] | None = None,
             row["regular"] = True
         groups.setdefault(row["aisle"], []).append(row)
     regulars = [
-        dict(r) | {"on_list": bool(r["on_list"])}
+        dict(r) | {"on_list": bool(r["on_list"]),
+                   "aisle": overrides.get(merge_key(r["name"])) or guess_aisle(r["name"])}
         for r in conn.execute(
             """SELECT g.id, g.name, g.qty,
                       EXISTS(SELECT 1 FROM extras x WHERE x.regular_id = g.id AND x.week_start = ?) AS on_list

@@ -96,6 +96,12 @@ KEYWORDS: dict[str, str] = {
         frozen, ice cream, fish fingers, oven chips, sorbet, frozen peas,
         frozen berries, ice cubes, ice lolly
     """,
+    # Household things, so 'kitchen roll' doesn't land in Bakery via 'roll'.
+    "Other": """
+        kitchen roll, toilet roll, toilet paper, bin bag, bin liner, foil, tin foil,
+        cling film, baking paper, washing up liquid, washing-up liquid, dishwasher tablet,
+        laundry, washing powder, fabric conditioner, bleach, sponge, tissues, cleaning spray
+    """,
 }
 
 # Whole-word qualifiers that decide the aisle regardless of the rest.

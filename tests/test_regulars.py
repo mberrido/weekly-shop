@@ -1,6 +1,7 @@
 import sqlite3
 
 from app.db import init_db
+from app.shopping import monday_of
 
 WEEK = "2026-09-21"
 
@@ -78,11 +79,23 @@ def test_plain_extras_still_go_in_extras(client):
 def test_migration_adds_regular_id(tmp_path):
     path = tmp_path / "old.db"
     conn = sqlite3.connect(path)
+    this_week = monday_of().isoformat()   # extras from past weeks are dropped when moving to one list
     conn.executescript("CREATE TABLE extras (id INTEGER PRIMARY KEY, week_start TEXT NOT NULL, name TEXT NOT NULL, "
-                       "qty TEXT NOT NULL DEFAULT ''); INSERT INTO extras(week_start, name) VALUES ('2026-09-21', 'Bin bags');"
+                       f"qty TEXT NOT NULL DEFAULT ''); INSERT INTO extras(week_start, name) VALUES ('{this_week}', 'Bin bags');"
                        "PRAGMA user_version = 4;")
     conn.close()
     init_db(str(path))
     conn = sqlite3.connect(path)
     assert "regular_id" in {r[1] for r in conn.execute("PRAGMA table_info(extras)")}
     assert conn.execute("SELECT name FROM extras").fetchone()[0] == "Bin bags"
+
+
+def test_regulars_report_their_aisle_and_it_can_be_changed(client):
+    rid = client.post("/api/regulars", json={"name": "Kitchen roll"}).json()["id"]
+    assert regular(client, "Kitchen roll")["aisle"] == "Other"          # best guess
+    client.put("/api/aisles", json={"name": "Kitchen roll", "aisle": "Cupboard"})
+    assert regular(client, "Kitchen roll")["aisle"] == "Cupboard"
+    client.post(f"/api/regulars/{rid}/toggle")
+    assert on_list(client, "Kitchen roll")["aisle"] == "Cupboard"       # used on the list too
+    client.put("/api/aisles", json={"name": "Kitchen roll", "aisle": None})
+    assert regular(client, "Kitchen roll")["aisle"] == "Other"

@@ -175,7 +175,7 @@ textarea { min-height: 200px; resize: vertical; line-height: 1.5; }
   background: var(--danger); color: #fff; font-size: 13px; font-weight: 700; }
 .pchip.reg .rtoggle { display: inline-flex; align-items: center; gap: 7px; width: auto; height: 38px; padding: 0 6px 0 0;
   color: var(--ink); font-size: 14px; }
-.pchip.reg { padding-left: 8px; }
+.pchip.reg { padding-left: 8px; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
 .pchip.reg .from { color: var(--ink-2); font-size: 12.5px; }
 .rbox { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--accent); display: grid; place-items: center; flex: none; }
 .rbox svg { width: 13px; height: 13px; opacity: 0; color: var(--accent-ink); }
@@ -213,6 +213,10 @@ dialog.sheet {
 dialog.sheet::backdrop { background: rgba(10,25,18,.45); }
 dialog.sheet[open] { animation: up .2s ease-out; }
 @keyframes up { from { transform: translateY(24px); opacity: 0; } }
+#view-week.slide-next { animation: slidenext .22s ease-out; }
+#view-week.slide-prev { animation: slideprev .22s ease-out; }
+@keyframes slidenext { from { transform: translateX(40px); opacity: .3; } }
+@keyframes slideprev { from { transform: translateX(-40px); opacity: .3; } }
 .sheet-in { padding: 18px 16px calc(16px + env(safe-area-inset-bottom)); overflow-y: auto; max-height: 88vh; }
 .sheet-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 /* Search panels: fixed tall height so the search bar sits near the top of the screen with
@@ -499,6 +503,30 @@ window.addEventListener("focus", refreshIfStale);
 function setWeek(ws) { S.week = ws; $("#weekLabel").textContent = weekLabel(ws); refresh(); }
 $("#prevWeek").onclick = () => setWeek(addDays(S.week, -7));
 $("#nextWeek").onclick = () => setWeek(addDays(S.week, 7));
+
+// Swipe left/right on the Week tab to move between weeks.
+(function weekSwipe() {
+  const view = $("#view-week");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)");
+  let x0 = null, y0 = 0, t0 = 0;
+  view.addEventListener("touchstart", e => {
+    if (e.touches.length !== 1 || sheet.open) { x0 = null; return; }
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; t0 = Date.now();
+  }, { passive: true });
+  view.addEventListener("touchend", e => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+    x0 = null;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5 || Date.now() - t0 > 800) return;
+    const next = dx < 0;                         // swipe left = next week
+    setWeek(addDays(S.week, next ? 7 : -7));
+    if (!reduce.matches) {
+      view.classList.remove("slide-next", "slide-prev"); void view.offsetWidth;
+      view.classList.add(next ? "slide-next" : "slide-prev");
+    }
+  }, { passive: true });
+  view.addEventListener("animationend", () => view.classList.remove("slide-next", "slide-prev"));
+})();
 $("#weekLabel").onclick = () => setWeek(mondayOf(new Date()));
 $("#logout").onclick = async () => {
   try { await fetch("/logout", { method: "POST", credentials: "same-origin" }); } catch {}
@@ -569,6 +597,7 @@ function renderWeek() {
       toast(r.copied ? `Copied ${r.copied} meal${r.copied === 1 ? "" : "s"} from last week` : "Nothing new to copy from last week");
       await refresh();
     }) }, "Copy last week"),
+    S.week !== mondayOf(new Date()) && h("button", { type: "button", class: "btn", onclick: () => setWeek(mondayOf(new Date())) }, "This week"),
     wd.entries.length > 0 && h("button", { type: "button", class: "btn ghost danger", onclick: e => confirmTap(e.currentTarget, "Tap again to clear", async () => {
       const r = await api("/api/week/clear", { method: "POST", body: { week_start: S.week } });
       toast(`Cleared ${r.cleared} meal${r.cleared === 1 ? "" : "s"} from ${weekLabel(S.week)}`); await refresh();
@@ -987,7 +1016,7 @@ function regularsSection(L) {
     h("h3", { class: "aisle", text: `Regular items${regs.length ? " · " + regs.filter(r => r.on_list).length + " on list" : ""}` }),
     regs.length ? h("div", { class: "pantry" }, regs.map(r =>
       h("span", { class: "pchip reg" + (r.on_list ? " on" : "") },
-        h("button", { type: "button", class: "rtoggle", "aria-pressed": String(r.on_list),
+        onLongPress(h("button", { type: "button", class: "rtoggle", "aria-pressed": String(r.on_list),
           "aria-label": `${cap(r.name)}${r.qty ? ", " + r.qty : ""}: ${r.on_list ? "on the list, tap to take off" : "tap to add to the list"}`,
           disabled: L.offline, onclick: e => run(e.currentTarget, async () => {
             const res = await api(`/api/regulars/${r.id}/toggle`, { method: "POST", body: { week_start: S.week } });
@@ -995,18 +1024,47 @@ function regularsSection(L) {
             await refresh();
           }) },
           h("span", { class: "rbox", "aria-hidden": "true" }, svgCheck()),
-          h("span", { text: cap(r.name) }), r.qty && h("span", { class: "from", text: r.qty })),
+          h("span", { text: cap(r.name) }), r.qty && h("span", { class: "from", text: r.qty })), () => regularSheet(r)),
         h("button", { type: "button", "aria-label": `Delete ${r.name} from regular items`,
           onclick: e => confirmTap(e.currentTarget, "Remove?", async () => {
             await api(`/api/regulars/${r.id}`, { method: "DELETE" }); toast(`Removed ${cap(r.name)} from regular items`); await refresh();
           }) }, "✕"))))
-    : h("p", { class: "hint", text: "Add things you buy often. Tick one to put it on this week's list." }),
+    : h("p", { class: "hint", text: "Add things you buy often. Tick one to put it on the list." }),
+    regs.length > 0 && h("p", { class: "hint", text: "Press and hold one to set its aisle." }),
     h("form", { class: "extra", onsubmit: e => { e.preventDefault(); if (!name.value.trim()) return;
       run(e.target.querySelector("button"), async () => {
         await api("/api/regulars", { method: "POST", body: { name: name.value.trim(), qty: qty.value.trim() } });
         toast(`Added ${cap(name.value.trim())} to regular items`); await refresh();
       }); } }, name, qty, h("button", { type: "submit", class: "btn" }, "Add")),
   ];
+}
+
+// Press and hold (or right-click) to run fn instead of the normal tap.
+function onLongPress(el, fn, ms = 500) {
+  let timer = null, fired = false, x = 0, y = 0;
+  const cancel = () => { clearTimeout(timer); timer = null; };
+  el.addEventListener("pointerdown", e => {
+    fired = false; x = e.clientX; y = e.clientY;
+    timer = setTimeout(() => { fired = true; timer = null; if (navigator.vibrate) navigator.vibrate(15); fn(); }, ms);
+  });
+  el.addEventListener("pointermove", e => { if (timer && Math.hypot(e.clientX - x, e.clientY - y) > 10) cancel(); });
+  ["pointerup", "pointerleave", "pointercancel"].forEach(t => el.addEventListener(t, cancel));
+  el.addEventListener("click", e => { if (fired) { fired = false; e.preventDefault(); e.stopImmediatePropagation(); } }, { capture: true });
+  el.addEventListener("contextmenu", e => { e.preventDefault(); cancel(); fired = false; fn(); });
+  return el;
+}
+
+function regularSheet(r) {
+  const setAisle = aisle => async e => run(e.currentTarget, async () => {
+    await api("/api/aisles", { method: "PUT", body: { name: r.name, aisle } });
+    closeSheet(); toast(aisle ? `${cap(r.name)} goes in ${aisle}` : `${cap(r.name)} is sorted automatically`); await refresh();
+  });
+  openSheet(cap(r.name),
+    r.qty && h("p", { class: "sub", text: r.qty }),
+    h("div", { class: "grouplabel", text: "Aisle (remembered)" }),
+    h("div", { class: "aislegrid" }, S.config.aisles.filter(a => a !== "Extras").map(a =>
+      h("button", { type: "button", class: "btn", "aria-pressed": String(a === r.aisle), onclick: setAisle(a) }, a))),
+    h("div", { class: "row2" }, h("button", { type: "button", class: "btn ghost", onclick: setAisle(null) }, "Auto-sort")));
 }
 
 function rerenderListKeepingFocus(key) {

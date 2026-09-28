@@ -32,6 +32,10 @@ from app.aisles import AISLES, guess_aisle
     ("lemon juice", "Cupboard"),
     ("lemons", "Fruit & veg"),
     ("washing-up liquid", "Other"),
+    ("kitchen roll", "Other"),
+    ("toilet roll", "Other"),
+    ("bread roll", "Bakery"),
+    ("bin bags", "Other"),
     ("", "Other"),
 ])
 def test_guess_aisle(name, aisle):

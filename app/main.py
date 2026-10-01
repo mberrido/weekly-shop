@@ -24,6 +24,7 @@ from .cookidoo_service import CookidooError, CookidooService
 from .importer import import_ref, legacy_kind, normalise_kinds, parse_ref
 from .pantry_client import PantryClient
 from .photo_search import PexelsClient, PhotoSearchError
+from .skylight import SkylightError, SkylightService
 from .parsing import merge_key
 from .shopping import LIST, build_list, current_items, monday_of, take_off_list
 
@@ -172,7 +173,7 @@ async def _backup_loop(db_path: str) -> None:
 
 def create_app(settings: Settings | None = None, cookidoo: CookidooService | None = None,
                run_backups: bool = True, pantry: PantryClient | None = None,
-               photos: PexelsClient | None = None) -> FastAPI:
+               photos: PexelsClient | None = None, skylight: SkylightService | None = None) -> FastAPI:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     if settings is None:
         from dotenv import load_dotenv
@@ -193,6 +194,9 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
         pantry = PantryClient(settings.pantry_url, settings.pantry_read_key)
     if photos is None:
         photos = PexelsClient(settings.pexels_api_key)
+    if skylight is None:
+        skylight = SkylightService(settings.skylight_email, settings.skylight_password,
+                                   settings.data_dir / "skylight_token.json", settings.skylight_frame_id)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -220,6 +224,10 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
     def remove_photo_file(name: str | None) -> None:
         if name and PHOTO_NAME.match(name):
             (photos_dir / name).unlink(missing_ok=True)
+
+    @app.exception_handler(SkylightError)
+    async def skylight_error(_: Request, exc: SkylightError):
+        return JSONResponse({"detail": exc.message}, status_code=exc.status)
 
     @app.exception_handler(PhotoSearchError)
     async def photo_search_error(_: Request, exc: PhotoSearchError):
@@ -256,6 +264,7 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
     @app.get("/api/config")
     def config():
         return {"cookidoo": cookidoo.configured, "pantry": pantry.configured, "photos": photos.configured,
+                "skylight": skylight.configured,
                 "aisles": AISLES,
                 "today": date.today().isoformat()}
 
@@ -462,6 +471,18 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
         with conn() as c:
             cur = c.execute("DELETE FROM plan WHERE week_start = ?", (_ws(body.week_start),))
             return {"cleared": cur.rowcount}
+
+    @app.post("/api/skylight/send-week")
+    async def send_week_to_skylight(body: WeekIn):
+        """Make this week's dinners on the Skylight match the plan (dinners only, names only)."""
+        ws = _ws(body.week_start)
+        monday = date.fromisoformat(ws)
+        with conn() as c:
+            rows = c.execute(
+                """SELECT p.day, m.name FROM plan p JOIN meals m ON m.id = p.meal_id
+                   WHERE p.week_start = ? AND p.slot = 'dinner' ORDER BY p.day, p.id""", (ws,)).fetchall()
+        dinners = [(monday + timedelta(days=r["day"]), r["name"]) for r in rows]
+        return await skylight.send_week(monday, dinners)
 
     @app.post("/api/week/copy-last")
     def copy_last_week(body: WeekIn):

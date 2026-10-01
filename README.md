@@ -25,6 +25,9 @@ on a Synology NAS.
   (Pexels, with the optional `PEXELS_API_KEY`). With a key, meals without a
   picture get the top result automatically, including existing ones on the
   next start. Removing a photo stops that meal being auto-filled again.
+- **Send to Skylight (optional):** with `SKYLIGHT_EMAIL`/`SKYLIGHT_PASSWORD` set, one button puts
+  the week's dinners into Skylight's Meal Planner. Skylight has no public API, so this
+  uses the same private app API as the community clients and may break if Skylight changes.
 - A single 6-digit household PIN (see [DEPLOY.md](DEPLOY.md) for remote access).
 
 Stack: Python 3.12, FastAPI, SQLite (plain `sqlite3`), and one static

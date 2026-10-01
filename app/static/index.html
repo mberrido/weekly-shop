@@ -598,6 +598,11 @@ function renderWeek() {
       await refresh();
     }) }, "Copy last week"),
     S.week !== mondayOf(new Date()) && h("button", { type: "button", class: "btn", onclick: () => setWeek(mondayOf(new Date())) }, "This week"),
+    S.config.skylight && h("button", { type: "button", class: "btn", onclick: e => run(e.currentTarget, async () => {
+      toast("Sending dinners to Skylight…");
+      const r = await api("/api/skylight/send-week", { method: "POST", body: { week_start: S.week } });
+      toast(r.sent ? `Sent ${r.sent} dinner${r.sent === 1 ? "" : "s"} to Skylight` : "No dinners this week: cleared them on Skylight");
+    }) }, "Send to Skylight"),
     wd.entries.length > 0 && h("button", { type: "button", class: "btn ghost danger", onclick: e => confirmTap(e.currentTarget, "Tap again to clear", async () => {
       const r = await api("/api/week/clear", { method: "POST", body: { week_start: S.week } });
       toast(`Cleared ${r.cleared} meal${r.cleared === 1 ? "" : "s"} from ${weekLabel(S.week)}`); await refresh();

@@ -70,6 +70,7 @@ Fill in:
 | `COOKIDOO_EMAIL` / `COOKIDOO_PASSWORD` | Optional. Leave blank and the Cookidoo buttons are hidden. |
 | `PUID` / `PGID` | The numbers from `id` in step 1. |
 | `PEXELS_API_KEY` | Optional. Free key from [pexels.com/api](https://www.pexels.com/api/). Meals without a photo get one automatically, and the meal editor gets a **Search online** button. |
+| `SKYLIGHT_EMAIL` / `SKYLIGHT_PASSWORD` | Optional. Your Skylight app login. Adds **Send to Skylight** on the Week tab, which puts that week's dinners into Skylight's Meal Planner (replacing that week's dinners there). Unofficial, so it may stop working if Skylight changes its app. `SKYLIGHT_FRAME_ID` only if the account has more than one Skylight. |
 | `PANTRY_URL` | Optional. Your Pantry Tracker, e.g. `http://192.168.1.20:1683`. Use the NAS's **LAN IP**: inside a container `localhost` is the container itself. Weekly Shop only reads from it. |
 
 Wrap any value containing `$`, `#` or spaces in **single quotes**, e.g.

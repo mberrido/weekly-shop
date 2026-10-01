@@ -28,6 +28,9 @@ class Settings:
     pantry_url: str = ""
     pantry_read_key: str = field(default="", repr=False)
     pexels_api_key: str = field(default="", repr=False)
+    skylight_email: str = ""
+    skylight_password: str = field(default="", repr=False)
+    skylight_frame_id: str = ""
 
     @property
     def data_dir(self) -> Path:
@@ -67,4 +70,7 @@ def load_settings(env: dict[str, str] | None = None) -> Settings:
         pantry_url=(env.get("PANTRY_URL") or "").strip(),
         pantry_read_key=(env.get("PANTRY_READ_KEY") or "").strip(),
         pexels_api_key=(env.get("PEXELS_API_KEY") or "").strip(),
+        skylight_email=(env.get("SKYLIGHT_EMAIL") or "").strip(),
+        skylight_password=env.get("SKYLIGHT_PASSWORD") or "",
+        skylight_frame_id=(env.get("SKYLIGHT_FRAME_ID") or "").strip(),
     )

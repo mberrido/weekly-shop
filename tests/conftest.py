@@ -77,12 +77,12 @@ def settings(tmp_path):
 def make_client(settings, fake_api):
     clients = []
 
-    def make(cookidoo=None, pantry=None, photos=None, **settings_overrides):
+    def make(cookidoo=None, pantry=None, photos=None, skylight=None, **settings_overrides):
         async def factory():
             return fake_api
         svc = cookidoo if cookidoo is not None else CookidooService("", "", api_factory=factory)
         s = settings.__class__(**{**settings.__dict__, **settings_overrides})
-        c = Client(create_app(s, svc, run_backups=False, pantry=pantry, photos=photos))
+        c = Client(create_app(s, svc, run_backups=False, pantry=pantry, photos=photos, skylight=skylight))
         clients.append(c)
         return c
 

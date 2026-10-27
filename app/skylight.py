@@ -6,9 +6,10 @@ OAuth2 + PKCE web login, then JSON:API calls with a Bearer token. It's unofficia
 can break if Skylight changes its app; every failure becomes a SkylightError (-> 502)
 and the rest of Weekly Shop carries on.
 
-Sending a week replaces that week's dinners on the Skylight with Weekly Shop's
-(the household never adds meals on the Skylight itself). Meals are Skylight
-"recipes" (name only), created once and reused by name.
+Sending a week fills it in: days with nothing planned in Weekly Shop are left alone,
+empty days on the Skylight get Weekly Shop's dinner, matching days are skipped, and a
+day where the two differ is only replaced when the user picks Weekly Shop's. Meals are
+Skylight "recipes" (name only), created once and reused by name.
 """
 
 from __future__ import annotations
@@ -206,8 +207,10 @@ class SkylightService:
             raise SkylightError(f"Skylight returned an error (HTTP {resp.status}).")
         return resp.json() if resp.body else {}
 
-    def _send_week(self, week_start: date, dinners: list[tuple[date, str]]) -> dict:
-        send = self._transport_factory()
+    # -- the week on the Skylight -------------------------------------------
+
+    def _setup(self, send: Transport) -> tuple[str, str, dict[str, str]]:
+        """(frame id, Dinner category id, recipe id -> name)."""
         frame = self._frame_id
         if not frame:
             frames = self._api(send, "GET", "/frames").get("data") or []
@@ -219,53 +222,109 @@ class SkylightService:
                                               or (c.get("attributes") or {}).get("name") or "").lower() == "dinner"), None)
         if not dinner:
             raise SkylightError("Couldn't find Skylight's Dinner meal time.")
-        cat_id = str(dinner["id"])
+        recipes = self._api(send, "GET", f"/frames/{frame}/meals/recipes").get("data") or []
+        names = {str(r["id"]): str((r.get("attributes") or {}).get("summary") or "").strip() for r in recipes}
+        return frame, str(dinner["id"]), names
 
-        # Clear this week's dinners on the Skylight.
+    def _dinners_on_skylight(self, send: Transport, frame: str, cat_id: str, week_start: date,
+                             names: dict[str, str]) -> dict[str, list[tuple[str, str]]]:
+        """date -> [(sitting id, meal name)] for this week's dinners on the Skylight."""
         week = {(week_start + timedelta(days=i)).isoformat() for i in range(7)}
-        end = (week_start + timedelta(days=6)).isoformat()
         sittings = self._api(send, "GET", f"/frames/{frame}/meals/sittings",
-                             {"date_min": week_start.isoformat(), "date_max": end}).get("data") or []
-        removed = 0
+                             {"date_min": week_start.isoformat(),
+                              "date_max": (week_start + timedelta(days=6)).isoformat()}).get("data") or []
+        out: dict[str, list[tuple[str, str]]] = {}
         for s in sittings:
             attrs = s.get("attributes") or {}
-            rel = ((s.get("relationships") or {}).get("meal_category") or {}).get("data") or {}
-            if str(rel.get("id") or attrs.get("meal_category_id") or "") != cat_id:
+            rels = s.get("relationships") or {}
+            cat = ((rels.get("meal_category") or {}).get("data") or {}).get("id") or attrs.get("meal_category_id")
+            if str(cat or "") != cat_id:
                 continue
+            rid = ((rels.get("meal_recipe") or {}).get("data") or {}).get("id") or attrs.get("meal_recipe_id")
+            name = names.get(str(rid), "") or str(attrs.get("summary") or "a meal")
             dates = attrs.get("instances") if isinstance(attrs.get("instances"), list) else [attrs.get("date")]
             for d in dates:
                 d = str(d or "")[:10]
                 if d in week:
-                    self._api(send, "DELETE", f"/frames/{frame}/meals/sittings/{s['id']}/instances/{d}")
-                    removed += 1
+                    out.setdefault(d, []).append((str(s["id"]), name))
+        return out
 
-        # Reuse recipes by name; create the missing ones.
-        recipes = self._api(send, "GET", f"/frames/{frame}/meals/recipes").get("data") or []
-        by_name = {str((r.get("attributes") or {}).get("summary") or "").strip().lower(): str(r["id"])
-                   for r in recipes}
-        sent = 0
-        for day, name in dinners:
-            key = name.strip().lower()
-            if key not in by_name:
-                created = self._api(send, "POST", f"/frames/{frame}/meals/recipes",
-                                    body={"summary": name.strip(), "meal_category_id": cat_id}).get("data") or {}
-                if isinstance(created, list):
-                    created = created[0] if created else {}
-                by_name[key] = str(created["id"])
-            self._api(send, "POST", f"/frames/{frame}/meals/sittings",
-                      body={"date": day.isoformat(), "meal_category_id": cat_id, "meal_recipe_id": by_name[key]})
-            sent += 1
-        return {"sent": sent, "removed": removed}
+    @staticmethod
+    def _compare(dinners: list[tuple[date, str]], on_sky: dict[str, list[tuple[str, str]]]) -> list[dict]:
+        """Day by day: what Weekly Shop has, what the Skylight has, and what sending would do."""
+        mine: dict[str, list[str]] = {}
+        for d, name in dinners:
+            mine.setdefault(d.isoformat(), []).append(name.strip())
+        days = []
+        for d in sorted(set(mine) | set(on_sky)):
+            app_names, sky_names = mine.get(d, []), [n for _, n in on_sky.get(d, [])]
+            if not app_names:
+                status = "untouched"            # nothing planned here: leave the Skylight alone
+            elif not sky_names:
+                status = "add"
+            elif sorted(n.lower() for n in app_names) == sorted(n.lower() for n in sky_names):
+                status = "same"
+            else:
+                status = "conflict"
+            days.append({"date": d, "app": app_names, "skylight": sky_names, "status": status})
+        return days
 
-    async def send_week(self, week_start: date, dinners: list[tuple[date, str]]) -> dict:
+    def _preview(self, week_start: date, dinners: list[tuple[date, str]]) -> dict:
+        send = self._transport_factory()
+        frame, cat_id, names = self._setup(send)
+        return {"days": self._compare(dinners, self._dinners_on_skylight(send, frame, cat_id, week_start, names))}
+
+    def _send_week(self, week_start: date, dinners: list[tuple[date, str]], choices: dict[str, str]) -> dict:
+        """Fill in the week. Days with nothing planned are left alone; a day that differs is only
+        replaced when choices[date] == "app" (otherwise the Skylight's dinner is kept)."""
+        send = self._transport_factory()
+        frame, cat_id, names = self._setup(send)
+        on_sky = self._dinners_on_skylight(send, frame, cat_id, week_start, names)
+        by_name = {n.lower(): rid for rid, n in names.items() if n}
+        result = {"added": 0, "already_there": 0, "kept": 0, "replaced": 0}
+        for day in self._compare(dinners, on_sky):
+            d, status = day["date"], day["status"]
+            if status == "same":
+                result["already_there"] += 1
+                continue
+            if status == "conflict":
+                if choices.get(d) != "app":
+                    result["kept"] += 1
+                    continue
+                for sid, _ in on_sky.get(d, []):
+                    self._api(send, "DELETE", f"/frames/{frame}/meals/sittings/{sid}/instances/{d}")
+                result["replaced"] += 1
+            if status in ("add", "conflict"):
+                for name in day["app"]:
+                    key = name.lower()
+                    if key not in by_name:
+                        created = self._api(send, "POST", f"/frames/{frame}/meals/recipes",
+                                            body={"summary": name, "meal_category_id": cat_id}).get("data") or {}
+                        if isinstance(created, list):
+                            created = created[0] if created else {}
+                        by_name[key] = str(created["id"])
+                    self._api(send, "POST", f"/frames/{frame}/meals/sittings",
+                              body={"date": d, "meal_category_id": cat_id, "meal_recipe_id": by_name[key]})
+                if status == "add":
+                    result["added"] += 1
+        return result
+
+    async def _run(self, fn, *args):
         if not self.configured:
             raise SkylightError("Skylight isn't set up (SKYLIGHT_EMAIL / SKYLIGHT_PASSWORD).", status=503)
         async with self._lock:
             try:
-                return await asyncio.to_thread(self._send_week, week_start, dinners)
+                return await asyncio.to_thread(fn, *args)
             except SkylightError as e:
                 log.warning("Skylight: %s", e.message)
                 raise
             except Exception as e:
                 log.warning("Skylight request failed: %s", type(e).__name__)
                 raise SkylightError(f"Couldn't reach Skylight ({type(e).__name__}).") from None
+
+    async def preview(self, week_start: date, dinners: list[tuple[date, str]]) -> dict:
+        return await self._run(self._preview, week_start, dinners)
+
+    async def send_week(self, week_start: date, dinners: list[tuple[date, str]],
+                        choices: dict[str, str] | None = None) -> dict:
+        return await self._run(self._send_week, week_start, dinners, choices or {})

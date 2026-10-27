@@ -117,6 +117,13 @@ class PantryLinkIn(BaseModel):
     auto: bool = False              # True clears the saved choice and goes back to auto-matching
 
 
+class SkylightSendIn(BaseModel):
+    week_start: date
+    # For days where the Skylight already has a different dinner: "app" replaces it,
+    # "skylight" (or no answer) keeps it.
+    choices: dict[str, Literal["app", "skylight"]] = Field(default_factory=dict)
+
+
 class PexelsPickIn(BaseModel):
     photo_id: int = Field(gt=0)
 
@@ -472,17 +479,25 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
             cur = c.execute("DELETE FROM plan WHERE week_start = ?", (_ws(body.week_start),))
             return {"cleared": cur.rowcount}
 
-    @app.post("/api/skylight/send-week")
-    async def send_week_to_skylight(body: WeekIn):
-        """Make this week's dinners on the Skylight match the plan (dinners only, names only)."""
-        ws = _ws(body.week_start)
+    def week_dinners(week_start) -> tuple[date, list[tuple[date, str]]]:
+        ws = _ws(week_start)
         monday = date.fromisoformat(ws)
         with conn() as c:
             rows = c.execute(
                 """SELECT p.day, m.name FROM plan p JOIN meals m ON m.id = p.meal_id
                    WHERE p.week_start = ? AND p.slot = 'dinner' ORDER BY p.day, p.id""", (ws,)).fetchall()
-        dinners = [(monday + timedelta(days=r["day"]), r["name"]) for r in rows]
-        return await skylight.send_week(monday, dinners)
+        return monday, [(monday + timedelta(days=r["day"]), r["name"]) for r in rows]
+
+    @app.post("/api/skylight/preview")
+    async def skylight_preview(body: WeekIn):
+        """Day by day, what sending this week would do (add / same / conflict / untouched)."""
+        return await skylight.preview(*week_dinners(body.week_start))
+
+    @app.post("/api/skylight/send-week")
+    async def send_week_to_skylight(body: SkylightSendIn):
+        """Fill in this week's dinners on the Skylight (see skylight.py for the rules)."""
+        monday, dinners = week_dinners(body.week_start)
+        return await skylight.send_week(monday, dinners, body.choices)
 
     @app.post("/api/week/copy-last")
     def copy_last_week(body: WeekIn):

@@ -129,38 +129,80 @@ def send(c, week=WEEK):
     return c.post("/api/skylight/send-week", json={"week_start": week})
 
 
-def test_sends_the_weeks_dinners_by_name(sc, sky):
+def preview(c, week=WEEK):
+    return {d["date"]: d["status"] for d in c.post("/api/skylight/preview", json={"week_start": week}).json()["days"]}
+
+
+def on_skylight(sky, date, name):
+    """Put a dinner straight onto the (fake) Skylight, as if added there."""
+    rid = next((k for k, v in sky.recipes.items() if v == name), None) or sky._id()
+    sky.recipes[rid] = name
+    sky.sittings[sky._id()] = {"date": date, "cat": "c3", "recipe": rid}
+
+
+def test_sends_dinners_to_empty_days_by_name(sc, sky):
     stew, curry = meal(sc, "Beef stew"), meal(sc, "Chicken curry")
     plan(sc, stew, 0)
     plan(sc, curry, 2)
     plan(sc, curry, 3, slot="lunch")                 # lunches stay out
     plan(sc, stew, 1, week="2026-09-28")            # other weeks stay out
     r = send(sc)
-    assert r.status_code == 200 and r.json() == {"sent": 2, "removed": 0}
+    assert r.status_code == 200 and r.json() == {"added": 2, "already_there": 0, "kept": 0, "replaced": 0}
     assert sky.plan() == {"2026-09-21": ["Beef stew"], "2026-09-23": ["Chicken curry"]}
     assert sorted(sky.recipes.values()) == ["Beef stew", "Chicken curry"]   # stew reused, curry created
 
 
-def test_sending_again_replaces_that_weeks_dinners(sc, sky):
-    stew, curry = meal(sc, "Beef stew"), meal(sc, "Chicken curry")
-    plan(sc, stew, 0)
-    send(sc)
-    sky.sittings["900"] = {"date": "2026-09-21", "cat": "c1", "recipe": "r1"}   # a breakfast: left alone
-    sc.post("/api/week/clear", json={"week_start": WEEK})
-    plan(sc, curry, 4)
-    plan(sc, curry, 4)                                           # two dinners on one day
-    assert send(sc).json() == {"sent": 2, "removed": 1}
-    assert sky.plan() == {"2026-09-25": ["Chicken curry", "Chicken curry"]}
-    assert "900" in sky.sittings
-    assert list(sky.recipes.values()).count("Chicken curry") == 1
+def test_days_with_nothing_planned_are_left_alone(sc, sky):
+    """Leftover meals moved to Tue/Wed on the Skylight survive sending Thu/Fri."""
+    on_skylight(sky, "2026-09-22", "Lasagne")
+    on_skylight(sky, "2026-09-23", "Fish pie")
+    plan(sc, meal(sc, "Fajitas"), 3)
+    plan(sc, meal(sc, "Pizza"), 4)
+    assert preview(sc) == {"2026-09-22": "untouched", "2026-09-23": "untouched",
+                           "2026-09-24": "add", "2026-09-25": "add"}
+    assert send(sc).json()["added"] == 2
+    assert sky.plan() == {"2026-09-22": ["Lasagne"], "2026-09-23": ["Fish pie"],
+                          "2026-09-24": ["Fajitas"], "2026-09-25": ["Pizza"]}
 
 
-def test_empty_week_clears_its_dinners(sc, sky):
+def test_same_dinner_already_there_is_not_duplicated(sc, sky):
     plan(sc, meal(sc, "Beef stew"), 0)
     send(sc)
-    sc.post("/api/week/clear", json={"week_start": WEEK})
-    assert send(sc).json() == {"sent": 0, "removed": 1}
-    assert sky.plan() == {}
+    assert preview(sc) == {"2026-09-21": "same"}
+    assert send(sc).json() == {"added": 0, "already_there": 1, "kept": 0, "replaced": 0}
+    assert sky.plan() == {"2026-09-21": ["Beef stew"]}
+
+
+def test_conflict_keeps_skylight_unless_told_otherwise(sc, sky):
+    on_skylight(sky, "2026-09-22", "Lasagne")
+    on_skylight(sky, "2026-09-23", "Fish pie")
+    curry = meal(sc, "Chicken curry")
+    plan(sc, curry, 1)
+    plan(sc, curry, 2)
+    days = sc.post("/api/skylight/preview", json={"week_start": WEEK}).json()["days"]
+    assert days[0] == {"date": "2026-09-22", "app": ["Chicken curry"], "skylight": ["Lasagne"], "status": "conflict"}
+    r = sc.post("/api/skylight/send-week", json={"week_start": WEEK, "choices": {"2026-09-23": "app"}})
+    assert r.json() == {"added": 0, "already_there": 0, "kept": 1, "replaced": 1}
+    assert sky.plan() == {"2026-09-22": ["Lasagne"], "2026-09-23": ["Chicken curry"]}
+
+
+def test_empty_week_changes_nothing(sc, sky):
+    on_skylight(sky, "2026-09-22", "Lasagne")
+    assert send(sc).json() == {"added": 0, "already_there": 0, "kept": 0, "replaced": 0}
+    assert sky.plan() == {"2026-09-22": ["Lasagne"]}
+
+
+def test_other_meal_times_on_skylight_are_ignored(sc, sky):
+    sky.sittings["900"] = {"date": "2026-09-21", "cat": "c1", "recipe": "r1"}   # a breakfast
+    plan(sc, meal(sc, "Chicken curry"), 0)
+    assert preview(sc) == {"2026-09-21": "add"}
+    send(sc)
+    assert "900" in sky.sittings
+
+
+def test_bad_choice_rejected(sc):
+    r = sc.post("/api/skylight/send-week", json={"week_start": WEEK, "choices": {"2026-09-22": "both"}})
+    assert r.status_code == 422
 
 
 def test_signs_in_once_then_reuses_the_saved_token(sc, sky, tmp_path):

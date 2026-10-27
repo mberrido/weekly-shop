@@ -257,6 +257,10 @@ dialog.sheet.tall .sheet-in { height: 100%; max-height: none; }
 .stepper { display: flex; align-items: center; justify-content: center; gap: 20px; margin: 12px 0 20px; }
 .stepper button { width: 56px; height: 56px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); font-size: 26px; }
 .stepper output { font: 800 48px/1 var(--display); min-width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
+fieldset.conflict { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px 10px; margin: 0 0 10px; background: var(--surface); }
+fieldset.conflict legend { font-weight: 800; font-family: var(--display); padding: 0 4px; }
+.choice { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; cursor: pointer; }
+.choice input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
 .qtyrow { display: flex; gap: 8px; }
 .qtyrow input { flex: 1; }
 .aislegrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -598,11 +602,7 @@ function renderWeek() {
       await refresh();
     }) }, "Copy last week"),
     S.week !== mondayOf(new Date()) && h("button", { type: "button", class: "btn", onclick: () => setWeek(mondayOf(new Date())) }, "This week"),
-    S.config.skylight && h("button", { type: "button", class: "btn", onclick: e => run(e.currentTarget, async () => {
-      toast("Sending dinners to Skylight…");
-      const r = await api("/api/skylight/send-week", { method: "POST", body: { week_start: S.week } });
-      toast(r.sent ? `Sent ${r.sent} dinner${r.sent === 1 ? "" : "s"} to Skylight` : "No dinners this week: cleared them on Skylight");
-    }) }, "Send to Skylight"),
+    S.config.skylight && h("button", { type: "button", class: "btn", onclick: e => run(e.currentTarget, skylightSend) }, "Send to Skylight"),
     wd.entries.length > 0 && h("button", { type: "button", class: "btn ghost danger", onclick: e => confirmTap(e.currentTarget, "Tap again to clear", async () => {
       const r = await api("/api/week/clear", { method: "POST", body: { week_start: S.week } });
       toast(`Cleared ${r.cleared} meal${r.cleared === 1 ? "" : "s"} from ${weekLabel(S.week)}`); await refresh();
@@ -627,6 +627,40 @@ function renderWeek() {
         h("button", { type: "button", class: "addbtn", "aria-label": `Add ${slot} on ${DAYS[i]}`, onclick: () => pickerSheet(i, slot) }, "+"))));
   });
   fill(v, actions, ...days);
+}
+
+// Send this week's dinners to Skylight: fills empty days, leaves days with nothing planned
+// alone, and asks which to keep where the Skylight already has a different dinner.
+async function skylightSend() {
+  const week = S.week;
+  const { days } = await api("/api/skylight/preview", { method: "POST", body: { week_start: week } });
+  const adds = days.filter(d => d.status === "add"), conflicts = days.filter(d => d.status === "conflict");
+  const go = async choices => {
+    const r = await api("/api/skylight/send-week", { method: "POST", body: { week_start: week, choices } });
+    const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+    const bits = [r.added && `added ${plural(r.added, "dinner")}`, r.replaced && `replaced ${r.replaced}`,
+                  r.kept && `kept ${r.kept} from Skylight`, r.already_there && `${r.already_there} already there`].filter(Boolean);
+    toast(bits.length ? `Skylight: ${bits.join(", ")}` : "Nothing to send");
+  };
+  if (!conflicts.length) {
+    if (!adds.length) { toast(days.some(d => d.status === "same") ? "Skylight already has these dinners" : "No dinners planned this week"); return; }
+    return go({});
+  }
+  const dayLabel = iso => { const d = parseIso(iso); return `${DAYS[(d.getDay() + 6) % 7]} ${d.getDate()} ${monthFmt.format(d)}`; };
+  const rows = conflicts.map(c => h("fieldset", { class: "conflict" },
+    h("legend", { text: dayLabel(c.date) }),
+    h("label", { class: "choice" }, h("input", { type: "radio", name: `c-${c.date}`, value: "skylight", checked: true }),
+      h("span", {}, h("b", { text: "Keep Skylight's: " }), c.skylight.join(", "))),
+    h("label", { class: "choice" }, h("input", { type: "radio", name: `c-${c.date}`, value: "app" }),
+      h("span", {}, h("b", { text: "Use Weekly Shop's: " }), c.app.join(", ")))));
+  openSheet("Send to Skylight",
+    h("p", { class: "sub", text: `The Skylight already has a different dinner on ${conflicts.length === 1 ? "this day" : "these days"}. Which should it keep?` }),
+    rows,
+    adds.length > 0 && h("p", { class: "hint", text: `Also adding ${adds.length} dinner${adds.length === 1 ? "" : "s"} to empty days. Days with nothing planned here are left alone.` }),
+    h("div", { class: "row2" }, h("button", { type: "button", class: "btn primary", onclick: ev => run(ev.currentTarget, async () => {
+      const choices = Object.fromEntries(conflicts.map(c => [c.date, document.querySelector(`input[name="c-${c.date}"]:checked`).value]));
+      closeSheet(); await go(choices);
+    }) }, "Send")));
 }
 
 function pickerSheet(day, slot) {

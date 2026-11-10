@@ -32,6 +32,8 @@ log = logging.getLogger("weekly_shop")
 STATIC = Path(__file__).parent / "static"
 MAX_PHOTO_BYTES = 8 * 1024 * 1024
 PHOTO_NAME = re.compile(r"^\d+-[0-9a-f]{16}\.jpg$")
+# A plan row's calendar date (rows are stored as Monday week_start + day 0-6).
+PLAN_DATE = "date(p.week_start, '+' || p.day || ' days')"
 
 Kind = Literal["breakfast", "lunch", "dinner", "any"]
 Slot = Literal["breakfast", "lunch", "dinner"]
@@ -115,6 +117,10 @@ class PantryLinkIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     product_id: int | None = None   # None with auto=False means "not in pantry"
     auto: bool = False              # True clears the saved choice and goes back to auto-matching
+
+
+class DaysIn(BaseModel):
+    start: date          # first of 7 days shown (any day, not just a Monday)
 
 
 class SkylightSendIn(BaseModel):
@@ -472,6 +478,53 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
         with conn() as c:
             c.execute("DELETE FROM plan WHERE id = ?", (plan_id,))
 
+    # -- any 7 days (the Week tab's "from today" view) -----------------------
+
+    @app.get("/api/days")
+    def get_days(start: date | None = Query(default=None)):
+        """Planned meals for the 7 days from `start` (default today), across Monday weeks."""
+        first = start or date.today()
+        last = first + timedelta(days=6)
+        with conn() as c:
+            rows = c.execute(
+                f"""SELECT p.id, p.week_start, p.day, {PLAN_DATE} AS date, p.slot, p.meal_id,
+                           p.servings AS planned_servings, m.name, m.image, m.kind, m.servings AS meal_servings
+                    FROM plan p JOIN meals m ON m.id = p.meal_id
+                    WHERE {PLAN_DATE} BETWEEN ? AND ? ORDER BY date, p.id""",
+                (first.isoformat(), last.isoformat())).fetchall()
+        return {"start": first.isoformat(),
+                "days": [(first + timedelta(days=i)).isoformat() for i in range(7)],
+                "entries": [dict(r) | {"servings": r["planned_servings"] or r["meal_servings"]} for r in rows]}
+
+    @app.post("/api/days/clear")
+    def clear_days(body: DaysIn):
+        """Remove every planned meal in the 7 days from `start`."""
+        with conn() as c:
+            cur = c.execute(f"DELETE FROM plan WHERE id IN (SELECT p.id FROM plan p WHERE {PLAN_DATE} BETWEEN ? AND ?)",
+                            (body.start.isoformat(), (body.start + timedelta(days=6)).isoformat()))
+            return {"cleared": cur.rowcount}
+
+    @app.post("/api/days/copy-previous")
+    def copy_previous_days(body: DaysIn):
+        """Copy the 7 days before `start` onto the 7 days from `start`, skipping exact repeats."""
+        prev_first = body.start - timedelta(days=7)
+        copied = 0
+        with conn() as c:
+            rows = c.execute(
+                f"""SELECT {PLAN_DATE} AS d, p.slot, p.meal_id, p.servings FROM plan p
+                    WHERE {PLAN_DATE} BETWEEN ? AND ? ORDER BY d, p.id""",
+                (prev_first.isoformat(), (body.start - timedelta(days=1)).isoformat())).fetchall()
+            for r in rows:
+                new = date.fromisoformat(r["d"]) + timedelta(days=7)
+                ws, day = monday_of(new).isoformat(), new.weekday()
+                if c.execute("SELECT 1 FROM plan WHERE week_start = ? AND day = ? AND slot = ? AND meal_id = ?",
+                             (ws, day, r["slot"], r["meal_id"])).fetchone():
+                    continue
+                c.execute("INSERT INTO plan(week_start, day, slot, meal_id, servings) VALUES (?,?,?,?,?)",
+                          (ws, day, r["slot"], r["meal_id"], r["servings"]))
+                copied += 1
+        return {"copied": copied}
+
     @app.post("/api/week/clear")
     def clear_week(body: WeekIn):
         """Remove every planned meal from one week; their ingredients leave the list."""
@@ -479,14 +532,16 @@ def create_app(settings: Settings | None = None, cookidoo: CookidooService | Non
             cur = c.execute("DELETE FROM plan WHERE week_start = ?", (_ws(body.week_start),))
             return {"cleared": cur.rowcount}
 
-    def week_dinners(week_start) -> tuple[date, list[tuple[date, str]]]:
-        ws = _ws(week_start)
-        monday = date.fromisoformat(ws)
+    def week_dinners(start) -> tuple[date, list[tuple[date, str]]]:
+        """Dinners for the 7 days from `start` (any day, so a window can span two Monday weeks)."""
+        first = start if isinstance(start, date) else date.fromisoformat(str(start))
+        last = first + timedelta(days=6)
         with conn() as c:
             rows = c.execute(
-                """SELECT p.day, m.name FROM plan p JOIN meals m ON m.id = p.meal_id
-                   WHERE p.week_start = ? AND p.slot = 'dinner' ORDER BY p.day, p.id""", (ws,)).fetchall()
-        return monday, [(monday + timedelta(days=r["day"]), r["name"]) for r in rows]
+                f"""SELECT {PLAN_DATE} AS d, m.name FROM plan p JOIN meals m ON m.id = p.meal_id
+                    WHERE p.slot = 'dinner' AND {PLAN_DATE} BETWEEN ? AND ? ORDER BY d, p.id""",
+                (first.isoformat(), last.isoformat())).fetchall()
+        return first, [(date.fromisoformat(r["d"]), r["name"]) for r in rows]
 
     @app.post("/api/skylight/preview")
     async def skylight_preview(body: WeekIn):

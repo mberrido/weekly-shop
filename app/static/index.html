@@ -262,6 +262,7 @@ fieldset.conflict legend { font-weight: 800; font-family: var(--display); paddin
 .choice { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; cursor: pointer; }
 .choice input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
 .qtyrow { display: flex; gap: 8px; }
+.weekmode { margin-bottom: 10px; }
 .qtyrow input { flex: 1; }
 .aislegrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .aislegrid .btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
@@ -431,7 +432,10 @@ function ingToLine(i) {
 const today = iso(new Date());
 const S = {
   tab: store.get("tab", "week"),
-  week: mondayOf(new Date()),
+  // S.week is the first of the 7 days on the Week tab: today ("today" mode) or a Monday ("monday" mode).
+  weekMode: store.get("weekMode", "today"),
+  week: store.get("weekMode", "today") === "monday" ? mondayOf(new Date()) : iso(new Date()),
+  followHome: true,   // still on today/this week: move along with it after midnight
   config: { cookidoo: false, aisles: [] },
   meals: [], weekData: null, list: null, pantry: [],
   mealFilter: store.get("mealFilter", "all"),
@@ -499,12 +503,15 @@ async function checkForUpdate() {
 const refreshIfStale = async () => {
   if (document.visibilityState !== "visible") return;
   if (await checkForUpdate()) return;
+  if (S.followHome && S.week !== homeStart() && !sheet.open) { setWeek(homeStart()); return; }
   if (sheet.open || Date.now() - lastRefresh < 5000) return;
   loadMeals().catch(() => {}).then(refresh);
 };
 document.addEventListener("visibilitychange", refreshIfStale);
 window.addEventListener("focus", refreshIfStale);
-function setWeek(ws) { S.week = ws; $("#weekLabel").textContent = weekLabel(ws); refresh(); }
+const homeStart = () => (S.weekMode === "monday" ? mondayOf(new Date()) : iso(new Date()));
+function setWeek(ws) { S.week = ws; S.followHome = ws === homeStart(); $("#weekLabel").textContent = weekLabel(ws); refresh(); }
+function setWeekMode(mode) { S.weekMode = mode; store.set("weekMode", mode); setWeek(homeStart()); }
 $("#prevWeek").onclick = () => setWeek(addDays(S.week, -7));
 $("#nextWeek").onclick = () => setWeek(addDays(S.week, 7));
 
@@ -541,7 +548,7 @@ $("#logout").onclick = async () => {
 async function refresh() {
   lastRefresh = Date.now();
   try {
-    const [week, list] = await Promise.all([api(`/api/week?start=${S.week}`), api("/api/list")]);
+    const [week, list] = await Promise.all([api(`/api/days?start=${S.week}`), api("/api/list")]);
     S.weekData = week; S.list = list; S.list.offline = false;
     store.set("list", list);
   } catch (e) {
@@ -591,42 +598,50 @@ function mealThumb(m) {
                  : h("span", { class: "thumb", "aria-hidden": "true", text: (m.name || "?").charAt(0).toUpperCase() });
 }
 
+const dayName = isoDate => DAYS[(parseIso(isoDate).getDay() + 6) % 7];
+
 function renderWeek() {
   const v = $("#view-week");
   const wd = S.weekData;
   if (!wd) { fill(v, h("p", { class: "empty", text: "Loading…" })); return; }
+  const rolling = S.weekMode !== "monday";
+  const plural = n => `${n} meal${n === 1 ? "" : "s"}`;
+  const modes = h("div", { class: "filters weekmode", role: "group", "aria-label": "Week starts" },
+    [["today", "From today"], ["monday", "W/C Monday"]].map(([m, label]) =>
+      h("button", { type: "button", "aria-pressed": String(S.weekMode === m), onclick: () => { if (S.weekMode !== m) setWeekMode(m); } }, label)));
   const actions = h("div", { class: "actions" },
     h("button", { type: "button", class: "btn", onclick: e => run(e.currentTarget, async () => {
-      const r = await api("/api/week/copy-last", { method: "POST", body: { week_start: S.week } });
-      toast(r.copied ? `Copied ${r.copied} meal${r.copied === 1 ? "" : "s"} from last week` : "Nothing new to copy from last week");
+      const r = await api("/api/days/copy-previous", { method: "POST", body: { start: S.week } });
+      toast(r.copied ? `Copied ${plural(r.copied)} from the 7 days before` : "Nothing new to copy from the 7 days before");
       await refresh();
-    }) }, "Copy last week"),
-    S.week !== mondayOf(new Date()) && h("button", { type: "button", class: "btn", onclick: () => setWeek(mondayOf(new Date())) }, "This week"),
+    }) }, rolling ? "Copy previous 7 days" : "Copy last week"),
+    S.week !== homeStart() && h("button", { type: "button", class: "btn", onclick: () => setWeek(homeStart()) }, rolling ? "Today" : "This week"),
     S.config.skylight && h("button", { type: "button", class: "btn", onclick: e => run(e.currentTarget, skylightSend) }, "Send to Skylight"),
     wd.entries.length > 0 && h("button", { type: "button", class: "btn ghost danger", onclick: e => confirmTap(e.currentTarget, "Tap again to clear", async () => {
-      const r = await api("/api/week/clear", { method: "POST", body: { week_start: S.week } });
-      toast(`Cleared ${r.cleared} meal${r.cleared === 1 ? "" : "s"} from ${weekLabel(S.week)}`); await refresh();
-    }) }, "Clear week"));
-  const days = wd.days.map((d, i) => {
-    const date = parseIso(d);
-    const isToday = d === today;
-    return h("section", { class: "day" + (isToday ? " today" : ""), "aria-label": `${DAYS[i]} ${date.getDate()} ${monthFmt.format(date)}` },
+      const r = await api("/api/days/clear", { method: "POST", body: { start: S.week } });
+      toast(`Cleared ${plural(r.cleared)} from ${weekLabel(S.week)}`); await refresh();
+    }) }, rolling ? "Clear 7 days" : "Clear week"));
+  const todayIso = iso(new Date());
+  const days = wd.days.map(d => {
+    const date = parseIso(d), name = dayName(d);
+    const isToday = d === todayIso;
+    return h("section", { class: "day" + (isToday ? " today" : ""), "aria-label": `${name} ${date.getDate()} ${monthFmt.format(date)}` },
       h("div", { class: "dayhead" },
-        h("h2", { text: DAYS[i] }),
+        h("h2", { text: name }),
         h("span", { class: "date", text: `${date.getDate()} ${monthFmt.format(date)}` }),
         isToday && h("span", { class: "badge", text: "Today" })),
       SLOTS.map(slot => h("div", { class: "slot" },
         h("span", { class: "slotname", text: slot }),
-        h("div", { class: "chips" }, wd.entries.filter(e => e.day === i && e.slot === slot).map(e =>
+        h("div", { class: "chips" }, wd.entries.filter(e => e.date === d && e.slot === slot).map(e =>
           h("span", { class: "chip" },
             h("span", { class: "nm", text: e.name, title: e.name }),
             h("button", { type: "button", class: "serv", "aria-label": `${e.name}: ${e.servings} servings, change`,
                           onclick: () => servingsSheet(e) }, `×${e.servings}`),
-            h("button", { type: "button", "aria-label": `Remove ${e.name} from ${DAYS[i]} ${slot}`,
+            h("button", { type: "button", "aria-label": `Remove ${e.name} from ${name} ${slot}`,
                           onclick: ev => run(ev.currentTarget, async () => { await api(`/api/plan/${e.id}`, { method: "DELETE" }); await refresh(); }) }, "✕")))),
-        h("button", { type: "button", class: "addbtn", "aria-label": `Add ${slot} on ${DAYS[i]}`, onclick: () => pickerSheet(i, slot) }, "+"))));
+        h("button", { type: "button", class: "addbtn", "aria-label": `Add ${slot} on ${name}`, onclick: () => pickerSheet(d, slot) }, "+"))));
   });
-  fill(v, actions, ...days);
+  fill(v, modes, actions, ...days);
 }
 
 // Send this week's dinners to Skylight: fills empty days, leaves days with nothing planned
@@ -663,7 +678,7 @@ async function skylightSend() {
     }) }, "Send")));
 }
 
-function pickerSheet(day, slot) {
+function pickerSheet(dayIso, slot) {
   const search = h("input", { type: "search", placeholder: "Search meals", "aria-label": "Search meals", autocomplete: "off" });
   const results = h("div");
   const draw = () => {
@@ -671,15 +686,16 @@ function pickerSheet(day, slot) {
     const ms = S.meals.filter(m => !q || m.name.toLowerCase().includes(q));
     const fit = ms.filter(m => m.kinds.includes(slot));
     const rest = ms.filter(m => !m.kinds.includes(slot));
-    // Days this week the meal is already planned on (any meal time): shown as a marker, still pickable.
-    const plannedDays = m => [...new Set((S.weekData?.entries || []).filter(e => e.meal_id === m.id).map(e => e.day))].sort();
+    // Days on screen the meal is already planned on (any meal time): shown as a marker, still pickable.
+    const plannedDays = m => [...new Set((S.weekData?.entries || []).filter(e => e.meal_id === m.id).map(e => e.date))].sort();
     const item = m => {
       const days = plannedDays(m);
-      const when = days.map(d => DAYS[d].slice(0, 3)).join(", ");
+      const when = days.map(d => dayName(d).slice(0, 3)).join(", ");
       return h("button", { type: "button", class: "pick" + (days.length ? " planned" : ""),
-        "aria-label": `${m.name}${days.length ? `, already planned on ${days.map(d => DAYS[d]).join(", ")}` : ""}`,
+        "aria-label": `${m.name}${days.length ? `, already planned on ${days.map(dayName).join(", ")}` : ""}`,
         onclick: e => run(e.currentTarget, async () => {
-          await api("/api/plan", { method: "POST", body: { week_start: S.week, day, slot, meal_id: m.id } });
+          const d = parseIso(dayIso);
+          await api("/api/plan", { method: "POST", body: { week_start: mondayOf(d), day: (d.getDay() + 6) % 7, slot, meal_id: m.id } });
           closeSheet(); toast(`Added ${m.name}`); await refresh();
         }) }, mealThumb(m),
         h("span", { class: "pickbody" }, h("span", { class: "t", text: m.name }), h("br"), h("span", { class: "meta", text: `${mealTimesText(m.kinds)} · serves ${m.servings}` })),
@@ -694,7 +710,7 @@ function pickerSheet(day, slot) {
   };
   search.addEventListener("input", draw);
   draw();
-  openSheet(`Add ${slot} · ${DAYS[day]}`, search, results);
+  openSheet(`Add ${slot} · ${dayName(dayIso)}`, search, results);
   makeSearchSheet(search);
   if (S.meals.length > 6) search.focus();
 }

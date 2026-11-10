@@ -241,3 +241,15 @@ def test_not_configured(client):
     assert client.get("/api/config").json()["skylight"] is False
     r = client.post("/api/skylight/send-week", json={"week_start": WEEK})
     assert r.status_code == 503 and "isn't set up" in r.json()["detail"]
+
+
+def test_send_from_a_tuesday_covers_tue_to_mon(sc, sky):
+    """In 'from today' mode the 7 days can cross into the next Monday week."""
+    stew = meal(sc, "Beef stew")
+    plan(sc, stew, 0, week="2026-09-21")        # Mon 21: before the window
+    plan(sc, stew, 1, week="2026-09-21")        # Tue 22
+    plan(sc, stew, 0, week="2026-09-28")        # Mon 28: last day of the window
+    plan(sc, stew, 1, week="2026-09-28")        # Tue 29: after the window
+    r = sc.post("/api/skylight/send-week", json={"week_start": "2026-09-22"})
+    assert r.json()["added"] == 2
+    assert sky.plan() == {"2026-09-22": ["Beef stew"], "2026-09-28": ["Beef stew"]}

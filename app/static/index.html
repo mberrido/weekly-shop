@@ -610,11 +610,6 @@ function renderWeek() {
     [["today", "From today"], ["monday", "W/C Monday"]].map(([m, label]) =>
       h("button", { type: "button", "aria-pressed": String(S.weekMode === m), onclick: () => { if (S.weekMode !== m) setWeekMode(m); } }, label)));
   const actions = h("div", { class: "actions" },
-    h("button", { type: "button", class: "btn", onclick: e => run(e.currentTarget, async () => {
-      const r = await api("/api/days/copy-previous", { method: "POST", body: { start: S.week } });
-      toast(r.copied ? `Copied ${plural(r.copied)} from the 7 days before` : "Nothing new to copy from the 7 days before");
-      await refresh();
-    }) }, rolling ? "Copy previous 7 days" : "Copy last week"),
     S.week !== homeStart() && h("button", { type: "button", class: "btn", onclick: () => setWeek(homeStart()) }, rolling ? "Today" : "This week"),
     S.config.skylight && h("button", { type: "button", class: "btn", onclick: e => run(e.currentTarget, skylightSend) }, "Send to Skylight"),
     wd.entries.length > 0 && h("button", { type: "button", class: "btn ghost danger", onclick: e => confirmTap(e.currentTarget, "Tap again to clear", async () => {
